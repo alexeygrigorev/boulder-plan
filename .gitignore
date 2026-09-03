@@ -6,5 +6,4 @@ dist/
 backend/data/*.json
 !backend/data/.gitkeep
 frontend/dist/
-content/raw/
-content/*.xlsx
+frontend/dist-tmp/
