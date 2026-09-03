@@ -835,6 +835,11 @@ async function boot(): Promise<void> {
   }
   const q = params.get("date");
   if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) date = q;
+  const t = params.get("tab");
+  if (t === "cal" || t === "prog" || t === "lib" || t === "safe") tab = t;
+  const mo = params.get("month");
+  if (mo && /^\d{4}-\d{2}$/.test(mo)) calMonth = mo;
+  else calMonth = date.slice(0, 7);
   const lib = params.get("lib");
   if (lib) {
     tab = "lib";
