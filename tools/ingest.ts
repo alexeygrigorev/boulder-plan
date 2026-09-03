@@ -80,6 +80,14 @@ function toMin(t: string): number {
   return m * 60 + s;
 }
 
+// Чистка «не делай»: запретительные блоки/секции в данные не попадают.
+// Оставляем только «Когда закончить раньше» (острая боль/травма — безопасность).
+const DROP_BLOCK_KIND = /^(запрет|сегодня намеренно нет)/i;
+const DROP_SECTION = /намеренно нет тренировки хвата/i;
+const DROP_ITEM = /^-\s+\[ \]\s*не было /i;
+
+let droppedBlocks = 0, droppedSections = 0, droppedItems = 0;
+
 function parseBlocks(md: string): Block[] {
   const lines = md.split("\n");
   const blocks: Block[] = [];
@@ -91,18 +99,20 @@ function parseBlocks(md: string): Block[] {
     const m = line.match(/^- \[ \] \*\*(\d{1,3}:\d{2})\s*[–—-]\s*(\d{1,3}:\d{2})\s*·\s*(.+?)\s*·\s*(обязательно|опционально|по назначению физиотерапевта|выбрать один сценарий)\*\*\s*—\s*(.*)/);
     if (m) {
       const [, start, end, kind, requirement, rest] = m;
+      if (DROP_BLOCK_KIND.test(kind.trim())) { droppedBlocks++; continue; }
       // kind вида "Самопроверка" а title после? формат: "время · kind · requirement — text"
       // но часть строк: "время · kind · requirement" где kind="Техника", а заголовка нет — берём kind как title
       const parts = kind.split("·").map((s) => s.trim());
       void parts;
       const chunk: string[] = [];
-      // собрать подклейки интенсивности/осторожности
+      // подклейка интенсивности; «Осторожность» не берём — только позитивные инструкции
       let j = i + 1;
-      let intensity: string | null = null, caution: string | null = null;
+      let intensity: string | null = null;
+      const caution = null;
       while (j < lines.length) {
         const nl = lines[j];
         if (/^\s*-\s*Интенсивность:/.test(nl)) intensity = nl.replace(/^\s*-\s*Интенсивность:\s*/, "").trim();
-        else if (/^\s*-\s*Осторожность:/.test(nl)) caution = nl.replace(/^\s*-\s*Осторожность:\s*/, "").trim();
+        else if (/^\s*-\s*Осторожность:/.test(nl)) { /* пропускаем */ }
         else break;
         j++;
       }
@@ -126,7 +136,15 @@ function parseSections(md: string): { heading: string; body: string }[] {
   const out: { heading: string; body: string }[] = [];
   const lines = md.split("\n");
   let cur: string | null = null, buf: string[] = [];
-  const flush = () => { if (cur) out.push({ heading: cur, body: buf.join("\n").trim() }); };
+  const flush = () => {
+    if (!cur) return;
+    if (DROP_SECTION.test(cur)) { droppedSections++; return; }
+    const kept = buf.filter((l) => {
+      if (DROP_ITEM.test(l)) { droppedItems++; return false; }
+      return true;
+    });
+    out.push({ heading: cur, body: kept.join("\n").trim() });
+  };
   for (const line of lines) {
     const h = line.match(/^##\s+(.+)/);
     if (h) { flush(); cur = h[1].trim(); buf = []; }
@@ -140,7 +158,15 @@ function parseLibrary(md: string) {
   const entries: { id: string; title: string; body: string }[] = [];
   const lines = md.split("\n");
   let cur: { id: string; title: string } | null = null, buf: string[] = [];
-  const flush = () => { if (cur) entries.push({ ...cur, body: buf.join("\n").trim() }); buf = []; };
+  // «Что не является ...» — запретительный хвост, в данные не берём
+  const flush = () => {
+    if (!cur) return;
+    const cut = buf.findIndex((l) => /^##\s+Что не является/i.test(l));
+    const body = (cut >= 0 ? buf.slice(0, cut) : buf).join("\n").trim();
+    if (cut >= 0) droppedSections++;
+    entries.push({ ...cur, body });
+    buf = [];
+  };
   for (const line of lines) {
     const h = line.match(/^###\s+(H\d|T\d+)\s*[—–-]\s*(.+)/);
     if (h) { flush(); cur = { id: h[1], title: h[2].trim() }; }
@@ -265,6 +291,7 @@ writeFileSync(OUT, JSON.stringify(plan, null, 1));
 console.log(`wrote ${OUT}: ${days.length} days, ${weeks.length} weeks, library ${library.length}`);
 const withBlocks = days.filter((d) => d.blocks.length > 0).length;
 console.log(`days with blocks: ${withBlocks}/${days.length}`);
+console.log(`dropped prohibitions: ${droppedBlocks} blocks, ${droppedSections} sections, ${droppedItems} items`);
 if (withBlocks < days.length * 0.9) {
   console.error("WARN: мало дней с блоками — проверь парсер");
   process.exitCode = 1;
