@@ -184,13 +184,64 @@ const weeks = weekFiles.map((f) => {
   const id = rel.match(/week_\d+_\d{4}-\d{2}-\d{2}/)?.[0] ?? rel;
   const meta = parseMeta(md);
   const dates = md.match(/\*\*Даты:\*\*\s*(.+)/)?.[1]?.trim() ?? "";
-  return { id, title, file: rel, dates, ...meta, sections: parseSections(md) };
+  const sections = parseSections(md);
+  return { id, title, file: rel, dates, ...meta, sections, resources: weekResourceIds(sections) };
 }).sort((a, b) => a.id.localeCompare(b.id));
 
 const libMd = readFileSync(join(planDir, "00_START", "04_EXERCISE_LIBRARY.md"), "utf8");
 const library = parseLibrary(libMd);
 
-const docIds = ["02_SAFETY_AND_AUTOREGULATION", "03_WARMUP", "06_FINGERBOARD", "10_FLEXIBLE_SCHEDULING", "09_MILESTONES_TESTS", "05_ROUTE_SELECTION"];
+// Ручные пояснения «как делать» для домашних комплексов (content/coaching.json: { H1: "...", ... }).
+// Исходник краток («ankle rocks», «dead bug»), а пользователю нужно понятное описание.
+let coaching: Record<string, string> = {};
+try {
+  coaching = JSON.parse(readFileSync(join(ROOT, "content", "coaching.json"), "utf8")) as Record<string, string>;
+} catch { /* необязательно */ }
+for (const entry of library) {
+  if (coaching[entry.id]) entry.coaching = coaching[entry.id];
+}
+
+// Таблица ресурсов R01–R25 из 07_RESOURCES.md -> [{ id, title, url, type, minutes, task }]
+function parseResources(md: string): { id: string; title: string; url: string; type: string; minutes: string; task: string }[] {
+  const out: { id: string; title: string; url: string; type: string; minutes: string; task: string }[] = [];
+  for (const line of md.split("\n")) {
+    const cells = line.split("|").map((c) => c.trim());
+    // | R01 | [title](url) | type | 10 мин | task |
+    if (cells.length < 6 || !/^R\d\d$/.test(cells[1] ?? "")) continue;
+    const link = cells[2]?.match(/\[([^\]]+)\]\((https?:[^)]+)\)/);
+    if (!link) continue;
+    out.push({ id: cells[1], title: link[1], url: link[2], type: cells[3] ?? "", minutes: cells[4] ?? "", task: cells[5] ?? "" });
+  }
+  return out;
+}
+
+// Словарь из 11_GLOSSARY.md -> [{ term, explanation }]
+function parseGlossary(md: string): { term: string; explanation: string }[] {
+  const out: { term: string; explanation: string }[] = [];
+  for (const line of md.split("\n")) {
+    const cells = line.split("|").map((c) => c.trim());
+    if (cells.length < 4 || !cells[1] || /^термин$/i.test(cells[1]) || /^-+$/.test(cells[1])) continue;
+    out.push({ term: cells[1], explanation: cells[2] ?? "" });
+  }
+  return out;
+}
+
+function readStartDoc(name: string): string {
+  return readFileSync(join(planDir, "00_START", name), "utf8");
+}
+
+const resources = parseResources(readStartDoc("07_RESOURCES.md"));
+const glossary = parseGlossary(readStartDoc("11_GLOSSARY.md"));
+
+// R-коды недели из секции «Ресурсы» обзора недели
+function weekResourceIds(sections: { heading: string; body: string }[]): string[] {
+  const sec = sections.find((s) => /ресурс/i.test(s.heading));
+  if (!sec) return [];
+  const ids = sec.body.match(/R\d\d/g) ?? [];
+  return [...new Set(ids)];
+}
+
+const docIds = ["02_SAFETY_AND_AUTOREGULATION", "03_WARMUP", "06_FINGERBOARD", "10_FLEXIBLE_SCHEDULING", "09_MILESTONES_TESTS", "05_ROUTE_SELECTION", "07_RESOURCES", "08_SHOPPING", "11_GLOSSARY", "01_HOW_TO_USE", "04_EXERCISE_LIBRARY"];
 const docs = docIds.map((id) => {
   const f = files.find((x) => basename(x).startsWith(id));
   if (!f) return null;
@@ -206,7 +257,7 @@ const plan = {
     days: days.length, weeks: weeks.length,
     source: "bouldering_plan_2026-09_to_2027-03",
   },
-  days, weeks, library, docs,
+  days, weeks, library, docs, resources, glossary,
 };
 
 mkdirSync(join(ROOT, "content"), { recursive: true });
