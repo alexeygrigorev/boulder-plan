@@ -1,0 +1,58 @@
+# Serverless-инфра (деплой позже — куда, покажешь отдельно).
+# SAM: одна Lambda (весь API) + HttpApi + DynamoDB для прогресса.
+# Фронтенд — статика (S3/CloudFront), собирается отдельно: npm --workspace frontend run build
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: boulder-plan — трекер тренировок (Lambda + HttpApi + DynamoDB)
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    MemorySize: 256
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref ProgressTable
+
+Resources:
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowMethods: ["GET", "PUT", "OPTIONS"]
+        AllowHeaders: ["content-type"]
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: nodejs20.x
+    Properties:
+      CodeUri: ../backend/
+      Handler: dist/src/lambda.handler
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            Path: /api/{proxy+}
+            Method: "*"
+            ApiId: !Ref Api
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ProgressTable
+
+  ProgressTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API base URL
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
