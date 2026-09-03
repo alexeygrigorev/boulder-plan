@@ -81,6 +81,42 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
   if (method === "GET" && path === "/api/weeks") {
     return json(plan.weeks.map((w) => ({ id: w.id, title: w.title, dates: w.dates, theme: w.theme })));
   }
+  if (method === "GET" && path === "/api/week") {
+    const week = plan.weeks.find((w) => w.id === query.id);
+    if (!week) return json({ error: "unknown week id" }, 404);
+    const days = plan.days
+      .filter((d) => d.week === week.id)
+      .map((d) => ({
+        date: d.date, title: d.title, format: d.format,
+        requiredMinutes: d.requiredMinutes, blocks: d.blocks.length,
+      }));
+    const resources = (week.resources ?? [])
+      .map((id) => plan.resources.find((r) => r.id === id))
+      .filter(Boolean);
+    return json({ ...week, days, resources });
+  }
+  if (method === "GET" && path === "/api/resources") {
+    return json(plan.resources);
+  }
+  if (method === "GET" && path === "/api/glossary") {
+    return json(plan.glossary);
+  }
+  if (method === "GET" && path === "/api/activity") {
+    const { from = plan.meta.period.from, to = plan.meta.period.to } = query;
+    if (!isDate(from) || !isDate(to)) return json({ error: "from/to must be YYYY-MM-DD" }, 400);
+    const days = plan.days.filter((d) => d.date >= from && d.date <= to);
+    const out = await Promise.all(days.map(async (d) => {
+      const required = d.blocks.filter((b) => b.requirement === "обязательно").map((b) => b.id);
+      const checks = (await store.get(d.date))?.checks ?? {};
+      return {
+        date: d.date, title: d.title, format: d.format,
+        requiredMinutes: d.requiredMinutes,
+        requiredTotal: required.length,
+        done: required.filter((id) => checks[id]).length,
+      };
+    }));
+    return json({ from, to, days: out });
+  }
   if (method === "GET" && path === "/api/plan") {
     const date = query.date ?? todayIso();
     if (!isDate(date)) return json({ error: "date must be YYYY-MM-DD" }, 400);

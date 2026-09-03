@@ -43,12 +43,37 @@ export interface PlanWeek {
   cue: string | null;
   requiredMinutes?: number;
   sections: PlanSection[];
+  resources: string[];
 }
 
 export interface LibraryEntry {
   id: string;
   title: string;
   body: string;
+  coaching?: string;
+}
+
+export interface ResourceItem {
+  id: string;
+  title: string;
+  url: string;
+  type: string;
+  minutes: string;
+  task: string;
+}
+
+export interface GlossaryTerm {
+  term: string;
+  explanation: string;
+}
+
+export interface ActivityDay {
+  date: string;
+  title: string;
+  format: string | null;
+  requiredMinutes: number;
+  requiredTotal: number;
+  done: number;
 }
 
 export interface ProgressEntry {

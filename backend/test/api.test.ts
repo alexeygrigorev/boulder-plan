@@ -88,4 +88,40 @@ describe("api", () => {
     });
     assert.equal(bad.status, 401);
   });
+
+  it("week with days and resources", async () => {
+    const res = await route({ method: "GET", path: "/api/week", query: { id: "week_01_2026-09-07" }, headers: {} });
+    assert.equal(res.status, 200);
+    const week = res.body as { days: unknown[]; resources: { id: string; url: string }[] };
+    assert.equal(week.days.length, 7);
+    assert.ok(week.resources.some((r) => r.id === "R01" && r.url.startsWith("https://")));
+    const missing = await route({ method: "GET", path: "/api/week", query: { id: "nope" }, headers: {} });
+    assert.equal(missing.status, 404);
+  });
+
+  it("resources and glossary", async () => {
+    const res = await route({ method: "GET", path: "/api/resources", query: {}, headers: {} });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as unknown[]).length, 25);
+    const g = await route({ method: "GET", path: "/api/glossary", query: {}, headers: {} });
+    assert.equal(g.status, 200);
+    assert.ok((g.body as { term: string }[]).some((t) => t.term === "Beta"));
+  });
+
+  it("activity range with done counts", async () => {
+    await route({
+      method: "PUT", path: "/api/progress", query: {}, headers: {},
+      body: { date: "2026-09-08", checks: { b01: true }, note: "" },
+    });
+    const res = await route({
+      method: "GET", path: "/api/activity",
+      query: { from: "2026-09-07", to: "2026-09-09" }, headers: {},
+    });
+    assert.equal(res.status, 200);
+    const days = (res.body as { days: { date: string; requiredTotal: number; done: number }[] }).days;
+    assert.equal(days.length, 3);
+    assert.ok(days.every((d) => d.requiredTotal > 0 && d.done >= 0));
+    const bad = await route({ method: "GET", path: "/api/activity", query: { from: "oops", to: "2026-09-09" }, headers: {} });
+    assert.equal(bad.status, 400);
+  });
 });

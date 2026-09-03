@@ -2,7 +2,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PlanDay, PlanWeek, LibraryEntry } from "./types.ts";
+import type { PlanDay, PlanWeek, LibraryEntry, ResourceItem, GlossaryTerm } from "./types.ts";
 
 interface PlanFile {
   meta: { title: string; period: { from: string; to: string }; days: number; weeks: number };
@@ -10,6 +10,8 @@ interface PlanFile {
   weeks: PlanWeek[];
   library: LibraryEntry[];
   docs: { id: string; title: string; body: string }[];
+  resources: ResourceItem[];
+  glossary: GlossaryTerm[];
 }
 
 let cache: PlanFile | null = null;
