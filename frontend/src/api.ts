@@ -25,6 +25,20 @@ export interface PlanDay {
   week: string;
 }
 
+export interface DayMetrics {
+  shoulder?: number;
+  fingers?: number;
+  knee?: number;
+  energy?: number;
+}
+
+export interface DayProgress {
+  date: string;
+  checks: Record<string, boolean>;
+  note: string;
+  metrics?: DayMetrics;
+}
+
 export interface DaySummary {
   date: string;
   title: string;
@@ -134,9 +148,9 @@ export const api = {
   days: () => get<{ period: { from: string; to: string }; days: DaySummary[] }>("/api/days"),
   plan: (date: string) => get<PlanDay>(`/api/plan?date=${date}`),
   progress: (date: string) =>
-    get<{ date: string; checks: Record<string, boolean>; note: string }>(`/api/progress?date=${date}`),
-  saveProgress: (date: string, checks: Record<string, boolean>, note: string) =>
-    put(`/api/progress`, { date, checks, note }),
+    get<DayProgress>(`/api/progress?date=${date}`),
+  saveProgress: (date: string, checks: Record<string, boolean>, note: string, metrics?: DayMetrics) =>
+    put(`/api/progress`, { date, checks, note, ...(metrics ? { metrics } : {}) }),
   library: () => get<{ id: string; title: string }[]>("/api/library"),
   libraryEntry: (id: string) => get<LibraryEntryFull>(`/api/library/entry?id=${id}`),
   doc: (id: string) => get<{ id: string; title: string; body: string }>(`/api/doc?id=${id}`),

@@ -1,6 +1,7 @@
 import {
   api, auth, AuthError, todayIso, shiftDate,
   type PlanDay, type ActivityDay, type GlossaryTerm, type ResourceItem, type PlanWeekFull,
+  type DayMetrics,
 } from "./api";
 import { md } from "./md";
 
@@ -16,6 +17,7 @@ let userEmail: string | null = null;
 let day: PlanDay | null = null;
 let checks: Record<string, boolean> = {};
 let note = "";
+let metrics: DayMetrics = {};
 let daysCache: { date: string; title: string; format: string | null; week: string }[] = [];
 let saveTimer: number | undefined;
 const timers = new Map<string, { left: number; total: number; on: boolean; int?: number }>();
@@ -90,10 +92,10 @@ function localKey(d: string): string {
 }
 
 function scheduleSave(): void {
-  localStorage.setItem(localKey(date), JSON.stringify({ checks, note }));
+  localStorage.setItem(localKey(date), JSON.stringify({ checks, note, metrics }));
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    api.saveProgress(date, checks, note).catch(() => {
+    api.saveProgress(date, checks, note, metrics).catch(() => {
       /* офлайн — останется в localStorage */
     });
   }, 600);
@@ -139,21 +141,25 @@ async function loadDay(): Promise<void> {
     const p = await api.progress(date);
     checks = p.checks ?? {};
     note = p.note ?? "";
-    localStorage.setItem(localKey(date), JSON.stringify({ checks, note }));
+    metrics = p.metrics ?? {};
+    localStorage.setItem(localKey(date), JSON.stringify({ checks, note, metrics }));
   } catch {
     try {
       const raw = localStorage.getItem(localKey(date));
       if (raw) {
-        const j = JSON.parse(raw) as { checks: Record<string, boolean>; note: string };
+        const j = JSON.parse(raw) as { checks: Record<string, boolean>; note: string; metrics?: DayMetrics };
         checks = j.checks ?? {};
         note = j.note ?? "";
+        metrics = j.metrics ?? {};
       } else {
         checks = {};
         note = "";
+        metrics = {};
       }
     } catch {
       checks = {};
       note = "";
+      metrics = {};
     }
   }
   render();
@@ -278,6 +284,13 @@ function renderDay(): void {
     <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
     ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
     ${others.map((s) => `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`).join("")}
+    <h3>Утренняя реакция</h3>
+    <div class="meters">
+      ${meterHtml("shoulder", "Плечо", 0, 10)}
+      ${meterHtml("fingers", "Пальцы", 0, 10)}
+      ${meterHtml("knee", "Колено", 0, 10)}
+      ${meterHtml("energy", "Энергия", 1, 5)}
+    </div>
     <h3>Заметка дня</h3>
     <textarea class="note" id="note" placeholder="Техника одной фразой, плечо/пальцы/колено 0–10…">${esc(note)}</textarea>
     ${tabsHtml()}`;
@@ -285,6 +298,7 @@ function renderDay(): void {
   wireDayNav();
   wireTabs();
   wireBlocks();
+  wireMeters();
 
   // Материалы недели подгружаются отдельно, чтобы день открывался сразу
   if (d.week && d.week !== "prestart") {
@@ -340,6 +354,33 @@ function wireBlocks(): void {
   });
 }
 
+function meterHtml(key: keyof DayMetrics, label: string, min: number, max: number): string {
+  const v = metrics[key];
+  return `<div class="meter"><span>${label}</span>
+    <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="-1" aria-label="${label} меньше">−</button>
+    <strong id="mv-${key}">${v === undefined ? "–" : v}</strong>
+    <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="1" aria-label="${label} больше">+</button>
+  </div>`;
+}
+
+function wireMeters(): void {
+  app.querySelectorAll<HTMLButtonElement>("[data-meter]").forEach((b) => {
+    b.onclick = () => {
+      const key = b.dataset.meter as keyof DayMetrics;
+      const min = Number(b.dataset.min);
+      const max = Number(b.dataset.max);
+      const d = Number(b.dataset.d);
+      const cur = metrics[key];
+      const next = cur === undefined ? (d > 0 ? min : max) : Math.min(max, Math.max(min, cur + d));
+      if (next === cur) return;
+      metrics[key] = next;
+      const el = document.getElementById(`mv-${key}`);
+      if (el) el.textContent = String(next);
+      scheduleSave();
+    };
+  });
+}
+
 function blockHtml(b: PlanDay["blocks"][number]): string {
   const t = timers.get(b.id);
   const left = t ? t.left : b.minutes * 60;
@@ -349,7 +390,7 @@ function blockHtml(b: PlanDay["blocks"][number]): string {
       <button class="check" data-check="${b.id}" aria-label="Отметить блок">${checks[b.id] ? "✓" : "○"}</button>
       <div><span class="time">${esc(b.start)}–${esc(b.end)}</span>
         <span class="kind"> · ${esc(b.kind)}</span>
-        <div class="chips"><span class="chip req">${esc(b.requirement)}</span><span class="chip">${esc(b.section)}</span></div>
+        <div class="chips"><span class="chip req">${esc(b.requirement)}</span>${b.section !== "Чек-лист по минутам" ? `<span class="chip">${esc(b.section)}</span>` : ""}</div>
       </div>
     </div>
     <div class="text">${md(b.text)}</div>

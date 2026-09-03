@@ -146,13 +146,32 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
     const b = (req.body ?? {}) as Partial<ProgressEntry>;
     if (typeof b.date !== "string" || !isDate(b.date)) return json({ error: "body.date must be YYYY-MM-DD" }, 400);
     if (typeof b.checks !== "object" || b.checks === null) return json({ error: "body.checks must be object" }, 400);
+    const metrics = parseMetrics(b.metrics);
+    if (metrics === null) return json({ error: "body.metrics must be {shoulder,fingers,knee 0-10, energy 1-5}" }, 400);
     const entry: ProgressEntry = {
       date: b.date,
       checks: b.checks as Record<string, boolean>,
       note: typeof b.note === "string" ? b.note.slice(0, 2000) : "",
+      ...(metrics ? { metrics } : {}),
       updatedAt: new Date().toISOString(),
     };
     return json(await store.put(entry));
   }
   return json({ error: "not found", path }, 404);
+}
+
+function parseMetrics(v: unknown): ProgressEntry["metrics"] | undefined | null {
+  if (v === undefined) return undefined;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const out: NonNullable<ProgressEntry["metrics"]> = {};
+  const ints: [keyof NonNullable<ProgressEntry["metrics"]>, number, number][] = [
+    ["shoulder", 0, 10], ["fingers", 0, 10], ["knee", 0, 10], ["energy", 1, 5],
+  ];
+  for (const [k, min, max] of ints) {
+    const val = (v as Record<string, unknown>)[k];
+    if (val === undefined || val === null) continue;
+    if (typeof val !== "number" || !Number.isInteger(val) || val < min || val > max) return null;
+    out[k] = val;
+  }
+  return out;
 }

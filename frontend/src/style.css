@@ -402,3 +402,11 @@ i.sw.fRec { background: #4fd6c4; }
 .hcell.l3 { background: #26a641; border-color: #26a641; }
 .hcell.l4 { background: #3ddc84; border-color: #3ddc84; font-weight: 700; }
 .hcell.gap { border-style: dashed; }
+
+/* Утренняя реакция */
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.meter { background: var(--card); border: 1px solid #2c343d; border-radius: 12px; padding: 8px;
+  display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; }
+.meter span { color: var(--muted); }
+.meter strong { font-size: 18px; min-width: 28px; text-align: center; }
+.meter button { padding: 6px 12px; font-size: 16px; }

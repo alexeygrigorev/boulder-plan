@@ -76,9 +76,17 @@ export interface ActivityDay {
   done: number;
 }
 
+export interface DayMetrics {
+  shoulder?: number;
+  fingers?: number;
+  knee?: number;
+  energy?: number;
+}
+
 export interface ProgressEntry {
   date: string;
   checks: Record<string, boolean>;
   note?: string;
+  metrics?: DayMetrics;
   updatedAt: string;
 }
