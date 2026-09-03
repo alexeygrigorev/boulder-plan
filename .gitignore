@@ -5,6 +5,7 @@ dist/
 .DS_Store
 backend/data/*.json
 !backend/data/.gitkeep
+backend/frontend/
 frontend/dist/
 frontend/dist-tmp/
 .tmp/
