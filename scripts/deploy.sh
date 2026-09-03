@@ -46,8 +46,21 @@ mkdir -p .tmp/artifact/content
 cp -r backend/dist .tmp/artifact/dist
 cp -r frontend/dist .tmp/artifact/frontend
 cp content/plan.json .tmp/artifact/content/plan.json
-(cd .tmp/artifact && zip -qr "../${KEY}" .)
-unzip -l ".tmp/${KEY}" | head -8
+# package.json нужен рантайму (type: module), node_modules — только прод-зависимости (@aws-sdk для DynamoDB)
+cp backend/package.json .tmp/artifact/package.json
+(cd .tmp/artifact && npm install --omit=dev --no-audit --no-fund)
+python3 - ".tmp/artifact" ".tmp/${KEY}" <<'EOF'
+import sys, zipfile
+from pathlib import Path
+root, out = Path(sys.argv[1]), Path(sys.argv[2])
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    for p in sorted(root.rglob("*")):
+        if p.is_file():
+            z.write(p, p.relative_to(root).as_posix())
+with zipfile.ZipFile(out) as z:
+    names = z.namelist()
+    print(f"{len(names)} files, top: {', '.join(names[:6])}")
+EOF
 
 aws s3 mb "s3://${BUCKET}" --region "$REGION" 2>/dev/null || true
 aws s3 cp ".tmp/${KEY}" "s3://${BUCKET}/${KEY}" --region "$REGION"
