@@ -1,0 +1,11 @@
+{
+  "name": "backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --strip-types src/local.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  }
+}
