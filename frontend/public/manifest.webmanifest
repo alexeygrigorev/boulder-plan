@@ -1,0 +1,9 @@
+{
+  "name": "Болдер-план",
+  "short_name": "Болдер",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1d21",
+  "theme_color": "#1a1d21",
+  "icons": []
+}
