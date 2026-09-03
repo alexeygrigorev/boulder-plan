@@ -1,0 +1,13 @@
+{
+  "name": "boulder-plan",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["backend", "frontend", "tools"],
+  "scripts": {
+    "ingest": "node --strip-types tools/ingest.ts",
+    "dev": "npm --workspace backend run dev",
+    "build": "npm --workspace backend run build && npm --workspace frontend run build",
+    "test": "npm --workspace backend run test"
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.aws-sam/
+*.log
+.DS_Store
+backend/data/*.json
+!backend/data/.gitkeep
+frontend/dist/
+content/raw/
+content/*.xlsx
