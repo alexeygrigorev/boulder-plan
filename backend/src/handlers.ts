@@ -32,6 +32,13 @@ function isDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
+// Тип дня для календаря: будняя тренировка / воскресенье (расслабленное, опционально) / обычный день.
+function dayKind(date: string, format: string | null): "workout" | "sunday" | "regular" {
+  if (new Date(date + "T12:00:00").getDay() === 0) return "sunday";
+  if (format && (format.startsWith("Тренировка A") || format.startsWith("Тренировка B"))) return "workout";
+  return "regular";
+}
+
 export async function route(req: ApiRequest, config: AppConfig = loadConfig()): Promise<ApiResponse> {
   const plan = loadPlan();
   const store = createStore();
@@ -109,7 +116,7 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
       const required = d.blocks.filter((b) => b.requirement === "обязательно").map((b) => b.id);
       const checks = (await store.get(d.date))?.checks ?? {};
       return {
-        date: d.date, title: d.title, format: d.format,
+        date: d.date, title: d.title, format: d.format, kind: dayKind(d.date, d.format),
         requiredMinutes: d.requiredMinutes,
         requiredTotal: required.length,
         done: required.filter((id) => checks[id]).length,

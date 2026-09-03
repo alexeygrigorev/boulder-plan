@@ -87,6 +87,12 @@ function fmtLetter(format: string | null): string {
   return "·";
 }
 
+function kindLabel(iso: string, format: string | null): string {
+  if (new Date(iso + "T12:00:00").getDay() === 0) return "воскресенье · relaxed, опционально";
+  if (format && (format.startsWith("Тренировка A") || format.startsWith("Тренировка B"))) return "тренировка";
+  return "обычный день";
+}
+
 function localKey(d: string): string {
   return `bp:${d}`;
 }
@@ -165,13 +171,24 @@ async function loadDay(): Promise<void> {
   render();
 }
 
+function fmtDateRu(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
 function navHtml(): string {
   return `<div class="dateline">
     <button id="prev" aria-label="Предыдущий день">‹</button>
-    <div class="datewrap"><input type="date" id="date" value="${esc(date)}" min="2026-09-03" max="2027-03-07" /></div>
+    <div class="datewrap"><button id="datebtn" aria-label="Открыть календарь">📅 ${fmtDateRu(date)}</button></div>
     <button id="next" aria-label="Следующий день">›</button>
     <button id="today" class="primary">Сегодня</button>
   </div>`;
+}
+
+function goCal(): void {
+  calMonth = date.slice(0, 7);
+  tab = "cal";
+  render();
 }
 
 function tabsHtml(): string {
@@ -273,6 +290,7 @@ function renderDay(): void {
   app.innerHTML = `<header class="top">${navHtml()}</header>
     <h1>${esc(d.title)}</h1>${accountHtml()}
     <div class="meta">
+      <span>· ${esc(kindLabel(d.date, d.format))}</span>
       ${d.format ? `<span>· ${esc(d.format)}</span>` : ""}
       ${d.theme ? `<span>· тема: ${esc(d.theme)}</span>` : ""}
       ${d.requiredMinutes ? `<span>· ~${d.requiredMinutes} мин</span>` : ""}
@@ -330,10 +348,7 @@ function wireDayNav(): void {
     date = todayIso();
     void loadDay();
   };
-  (document.getElementById("date") as HTMLInputElement).onchange = (e) => {
-    date = (e.target as HTMLInputElement).value || date;
-    void loadDay();
-  };
+  (document.getElementById("datebtn") as HTMLButtonElement).onclick = () => goCal();
   (document.getElementById("note") as HTMLTextAreaElement).oninput = (e) => {
     note = (e.target as HTMLTextAreaElement).value;
     scheduleSave();
@@ -481,7 +496,7 @@ async function renderCal(): Promise<void> {
     }
     const lvl = levelOf(a, today);
     const star = lvl === "l4" ? `<span class="mstar">★</span>` : "";
-    cells += `<button class="mcell ${lvl} ${iso === date ? "sel" : ""}" data-date="${iso}">
+    cells += `<button class="mcell ${lvl} kind-${a.kind} ${iso === date ? "sel" : ""}" data-date="${iso}">
       <span class="mnum">${dd}</span>${star}
       <span class="mdot ${fmtClass(a.format)}">${fmtLetter(a.format)}</span>
       ${a.requiredMinutes ? `<span class="mmin">${a.requiredMinutes}′</span>` : ""}
@@ -501,11 +516,10 @@ async function renderCal(): Promise<void> {
     <div class="mweek">${["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((d) => `<span>${d}</span>`).join("")}</div>
     <div class="mgrid">${cells}</div>
     <div class="legend">
-      <span><i class="sw fA"></i>A · техника</span>
-      <span><i class="sw fB"></i>B · проект</span>
-      <span><i class="sw fC"></i>C · fun</span>
+      <span><i class="sw fA"></i>A · техника вт</span>
+      <span><i class="sw fB"></i>B · проект чт</span>
       <span><i class="sw fHome"></i>дом</span>
-      <span><i class="sw fRec"></i>восст.</span>
+      <span><i class="ksw sun"></i>вс — relaxed</span>
       <span>★ — день закрыт</span>
     </div>
     <h3>Неделя: ${esc(weekLabel)}</h3>
@@ -557,13 +571,8 @@ function wireDayNavLite(): void {
     tab = "today";
     void loadDay();
   };
-  const inp = document.getElementById("date") as HTMLInputElement | null;
-  if (inp) inp.onchange = (e) => {
-    date = (e.target as HTMLInputElement).value || date;
-    calMonth = date.slice(0, 7);
-    tab = "today";
-    void loadDay();
-  };
+  const inp = document.getElementById("datebtn") as HTMLButtonElement | null;
+  if (inp) inp.onclick = () => goCal();
 }
 
 // ---------- Прогресс: heatmap как на Гитхабе ----------

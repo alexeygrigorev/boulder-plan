@@ -410,3 +410,10 @@ i.sw.fRec { background: #4fd6c4; }
 .meter span { color: var(--muted); }
 .meter strong { font-size: 18px; min-width: 28px; text-align: center; }
 .meter button { padding: 6px 12px; font-size: 16px; }
+
+/* Типы дней в календаре */
+.mcell.kind-workout { border-color: #8a6d1f; border-width: 2px; }
+.mcell.kind-sunday { background: #2a2113; }
+i.ksw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; }
+i.ksw.sun { background: #2a2113; border: 1px solid #8a6d1f; }
+#datebtn { width: 100%; font-size: 17px; font-weight: 700; }

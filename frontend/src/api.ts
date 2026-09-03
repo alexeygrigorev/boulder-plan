@@ -85,6 +85,7 @@ export interface ActivityDay {
   date: string;
   title: string;
   format: string | null;
+  kind: "workout" | "sunday" | "regular";
   requiredMinutes: number;
   requiredTotal: number;
   done: number;

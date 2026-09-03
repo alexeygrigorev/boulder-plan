@@ -118,9 +118,15 @@ describe("api", () => {
       query: { from: "2026-09-07", to: "2026-09-09" }, headers: {},
     });
     assert.equal(res.status, 200);
-    const days = (res.body as { days: { date: string; requiredTotal: number; done: number }[] }).days;
+    const days = (res.body as { days: { date: string; kind: string; requiredTotal: number; done: number }[] }).days;
     assert.equal(days.length, 3);
     assert.ok(days.every((d) => d.requiredTotal > 0 && d.done >= 0));
+    assert.equal(days.find((d) => d.date === "2026-09-08")?.kind, "workout");
+    const sunday = await route({
+      method: "GET", path: "/api/activity",
+      query: { from: "2026-09-13", to: "2026-09-13" }, headers: {},
+    });
+    assert.equal(((sunday.body as { days: { kind: string }[] }).days[0]?.kind), "sunday");
     const bad = await route({ method: "GET", path: "/api/activity", query: { from: "oops", to: "2026-09-09" }, headers: {} });
     assert.equal(bad.status, 400);
   });
