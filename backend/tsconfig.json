@@ -6,6 +6,7 @@
     "strict": true,
     "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "outDir": "dist",
     "rootDir": ".",
     "skipLibCheck": true

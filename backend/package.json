@@ -7,5 +7,9 @@
     "dev": "node --strip-types src/local.ts",
     "build": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   }
 }

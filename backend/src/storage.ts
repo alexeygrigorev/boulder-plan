@@ -44,23 +44,19 @@ class DynamoStore implements ProgressStore {
   constructor(table: string) {
     this.table = table;
   }
-  private async client(): Promise<{ get: Function; put: Function }> {
+  private async doc(): Promise<import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient> {
     // Ленивый импорт, чтобы локально не тянуть @aws-sdk.
-    const lib = await import("@aws-sdk/lib-dynamodb");
-    const clientMod = await import("@aws-sdk/client-dynamodb");
-    const doc = new (lib as Record<string, new (o: unknown) => { get: Function; put: Function }>).DynamoDBDocumentClient(
-      new (clientMod as Record<string, new (o: unknown) => unknown>).DynamoDBClient({}),
-    ) as unknown as { get: Function; put: Function };
-    void this.table;
-    return doc;
+    const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+    const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
+    return new DynamoDBDocumentClient(new DynamoDBClient({}));
   }
   async get(date: string): Promise<ProgressEntry | null> {
-    const doc = await this.client();
+    const doc = await this.doc();
     const res = (await doc.get({ TableName: this.table, Key: { pk: `day#${date}` } })) as { Item?: ProgressEntry };
-    return (res.Item as ProgressEntry) ?? null;
+    return res.Item ?? null;
   }
   async put(entry: ProgressEntry): Promise<ProgressEntry> {
-    const doc = await this.client();
+    const doc = await this.doc();
     await doc.put({ TableName: this.table, Item: { pk: `day#${entry.date}`, ...entry } });
     return entry;
   }
