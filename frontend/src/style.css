@@ -329,3 +329,76 @@ code {
   padding: 1px 5px;
   border-radius: 6px;
 }
+
+/* Типы тренировок */
+.fA { color: #ffb224; }
+.fB { color: #3ddc84; }
+.fC { color: #6cb8ff; }
+.fHome { color: #a7b0b9; }
+.fRec { color: #4fd6c4; }
+.fRest { color: #6a737c; }
+.fPrep { color: #c792ea; }
+.fOther { color: #a7b0b9; }
+i.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: currentColor; margin-right: 4px; }
+i.sw.fA { background: #ffb224; }
+i.sw.fB { background: #3ddc84; }
+i.sw.fC { background: #6cb8ff; }
+i.sw.fHome { background: #a7b0b9; }
+i.sw.fRec { background: #4fd6c4; }
+
+/* Текст блоков: markdown-ссылки */
+.block .text p { margin: 0; }
+.block .text a { font-weight: 600; }
+
+/* Карточки ресурсов */
+.res { background: var(--card); border: 1px solid #2c343d; border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+.res .d { font-weight: 700; }
+.res .s { color: var(--muted); font-size: 13px; margin-top: 2px; }
+
+/* Библиотека: подвкладки, аккордеон, термины */
+.subchips { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+.subchip { border-radius: 99px; padding: 8px 14px; font-size: 14px; }
+.subchip.active { background: var(--accent); border-color: var(--accent); color: #221a05; font-weight: 700; }
+.acc { background: var(--card); border: 1px solid #2c343d; border-radius: var(--radius); padding: 10px 12px; margin: -4px 0 8px; }
+.accbody p, .coach p { margin: 6px 0; }
+.accbody ul, .coach ul { padding-left: 20px; margin: 6px 0; }
+.coach { background: #1c2b1f; border: 1px solid #2f6b4a; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; font-size: 15px; }
+.terms { margin: 8px 0; font-size: 13px; color: var(--muted); }
+.term { display: inline-block; margin: 2px 4px 2px 0; padding: 4px 10px; font-size: 13px; border-radius: 99px;
+  border: 1px dashed #4a5560; background: none; color: var(--text); }
+.termrow { background: var(--card); border: 1px solid #2c343d; border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+.termrow .d { font-weight: 700; }
+.termrow .s { color: var(--muted); font-size: 14px; }
+.search { width: 100%; background: var(--card); color: var(--text); border: 1px solid #333;
+  border-radius: 10px; padding: 10px; font-size: 15px; margin: 4px 0 8px; }
+
+/* Календарь-месяц */
+.monline { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+.mweek { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.mgrid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.mcell { aspect-ratio: 0.82; border-radius: 10px; background: var(--card); border: 1px solid #2c343d;
+  color: var(--text); font-size: 12px; padding: 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+.mcell.empty { background: none; border: none; }
+.mcell.sel { border-color: var(--accent); border-width: 2px; }
+.mnum { font-weight: 700; font-size: 13px; }
+.mdot { font-weight: 700; font-size: 13px; line-height: 1.1; }
+.mmin { color: var(--muted); font-size: 10px; }
+.mstar { color: var(--green); font-size: 12px; line-height: 1; }
+.mcell.l4 { border-color: #2f6b4a; }
+.mcell.gap { border-style: dashed; opacity: 0.75; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; margin: 10px 0; }
+
+/* Heatmap прогресса */
+.heatwrap { overflow-x: auto; padding-bottom: 4px; }
+.heat { display: flex; gap: 3px; width: max-content; }
+.hcol { display: flex; flex-direction: column; gap: 3px; }
+.hlab { font-size: 9px; color: var(--muted); height: 12px; }
+.hcell { width: 22px; height: 22px; border-radius: 5px; border: 1px solid #2c343d; background: #22272d;
+  color: #06270f; font-size: 13px; line-height: 1; padding: 0; }
+.hcell.out { visibility: hidden; }
+.hcell.future { background: none; border-style: dashed; opacity: 0.5; }
+.hcell.l1 { background: #0e4429; border-color: #0e4429; }
+.hcell.l2 { background: #006d32; border-color: #006d32; }
+.hcell.l3 { background: #26a641; border-color: #26a641; }
+.hcell.l4 { background: #3ddc84; border-color: #3ddc84; font-weight: 700; }
+.hcell.gap { border-style: dashed; }

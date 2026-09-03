@@ -35,6 +35,47 @@ export interface DaySummary {
   blocks: number;
 }
 
+export interface LibraryEntryFull {
+  id: string;
+  title: string;
+  body: string;
+  coaching?: string;
+}
+
+export interface PlanWeekFull {
+  id: string;
+  title: string;
+  dates: string;
+  theme: string | null;
+  cue: string | null;
+  sections: { heading: string; body: string }[];
+  resources: string[];
+  days: { date: string; title: string; format: string | null; requiredMinutes: number; blocks: number }[];
+}
+
+export interface ResourceItem {
+  id: string;
+  title: string;
+  url: string;
+  type: string;
+  minutes: string;
+  task: string;
+}
+
+export interface GlossaryTerm {
+  term: string;
+  explanation: string;
+}
+
+export interface ActivityDay {
+  date: string;
+  title: string;
+  format: string | null;
+  requiredMinutes: number;
+  requiredTotal: number;
+  done: number;
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: authHeaders() });
   if (res.status === 401) throw new AuthError();
@@ -97,8 +138,13 @@ export const api = {
   saveProgress: (date: string, checks: Record<string, boolean>, note: string) =>
     put(`/api/progress`, { date, checks, note }),
   library: () => get<{ id: string; title: string }[]>("/api/library"),
-  libraryEntry: (id: string) => get<{ id: string; title: string; body: string }>(`/api/library/entry?id=${id}`),
+  libraryEntry: (id: string) => get<LibraryEntryFull>(`/api/library/entry?id=${id}`),
   doc: (id: string) => get<{ id: string; title: string; body: string }>(`/api/doc?id=${id}`),
+  week: (id: string) => get<PlanWeekFull>(`/api/week?id=${id}`),
+  resources: () => get<ResourceItem[]>("/api/resources"),
+  glossary: () => get<GlossaryTerm[]>("/api/glossary"),
+  activity: (from: string, to: string) =>
+    get<{ from: string; to: string; days: ActivityDay[] }>(`/api/activity?from=${from}&to=${to}`),
   me: () => get<{ enabled: boolean; email: string | null }>("/api/auth/me"),
 };
 
