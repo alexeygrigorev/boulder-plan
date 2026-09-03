@@ -82,7 +82,8 @@ function toMin(t: string): number {
 
 // Чистка «не делай»: запретительные блоки/секции в данные не попадают.
 // Оставляем только «Когда закончить раньше» (острая боль/травма — безопасность).
-const DROP_BLOCK_KIND = /^(запрет|сегодня намеренно нет)/i;
+const DROP_BLOCK_KIND = /^(запрет|сегодня намеренно нет|физиотерапия)/i;
+const DROP_BLOCK_REQ = /физиотерапевта/i;
 const DROP_SECTION = /намеренно нет тренировки хвата/i;
 const DROP_ITEM = /^-\s+\[ \]\s*не было /i;
 
@@ -99,7 +100,7 @@ function parseBlocks(md: string): Block[] {
     const m = line.match(/^- \[ \] \*\*(\d{1,3}:\d{2})\s*[–—-]\s*(\d{1,3}:\d{2})\s*·\s*(.+?)\s*·\s*(обязательно|опционально|по назначению физиотерапевта|выбрать один сценарий)\*\*\s*—\s*(.*)/);
     if (m) {
       const [, start, end, kind, requirement, rest] = m;
-      if (DROP_BLOCK_KIND.test(kind.trim())) { droppedBlocks++; continue; }
+      if (DROP_BLOCK_KIND.test(kind.trim()) || DROP_BLOCK_REQ.test(requirement.trim())) { droppedBlocks++; continue; }
       // kind вида "Самопроверка" а title после? формат: "время · kind · requirement — text"
       // но часть строк: "время · kind · requirement" где kind="Техника", а заголовка нет — берём kind как title
       const parts = kind.split("·").map((s) => s.trim());
