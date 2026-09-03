@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,33 +7,85 @@ import { join } from "node:path";
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "boulder-test-"));
 
 const { route } = await import("../src/handlers.ts");
+const { issueSessionToken } = await import("../src/jwt.ts");
+
+const AUTH_ENV = {
+  AUTH_BASE_URL: "https://auth.example.test",
+  AUTH_CLIENT_ID: "test-client",
+  AUTH_CALLBACK_URL: "https://app.example.test/auth/callback",
+  AUTH_LOGOUT_URL: "https://app.example.test/",
+  AUTH_ISSUER: "https://cognito.example.test/pool",
+  AUTH_JWKS_URL: "https://cognito.example.test/pool/.well-known/jwks.json",
+  JWT_SECRET: "x".repeat(60),
+};
+
+const savedEnv = { ...process.env };
+
+beforeEach(() => {
+  for (const k of Object.keys(AUTH_ENV)) delete process.env[k];
+  delete process.env.JWT_SECRET;
+});
+afterEach(() => {
+  process.env = { ...savedEnv, DATA_DIR: process.env.DATA_DIR };
+});
 
 describe("api", () => {
   it("health", async () => {
-    const res = await route({ method: "GET", path: "/api/health", query: {} });
+    const res = await route({ method: "GET", path: "/api/health", query: {}, headers: {} });
     assert.equal(res.status, 200);
     assert.equal((res.body as { ok: boolean }).ok, true);
   });
 
   it("plan day roundtrip + progress", async () => {
-    const plan = await route({ method: "GET", path: "/api/plan", query: { date: "2026-09-08" } });
+    const plan = await route({ method: "GET", path: "/api/plan", query: { date: "2026-09-08" }, headers: {} });
     assert.equal(plan.status, 200);
     const day = plan.body as { blocks: unknown[] };
     assert.ok(day.blocks.length > 5);
 
     const put = await route({
-      method: "PUT", path: "/api/progress", query: {},
+      method: "PUT", path: "/api/progress", query: {}, headers: {},
       body: { date: "2026-09-08", checks: { b01: true }, note: "test" },
     });
     assert.equal(put.status, 200);
 
-    const get = await route({ method: "GET", path: "/api/progress", query: { date: "2026-09-08" } });
+    const get = await route({ method: "GET", path: "/api/progress", query: { date: "2026-09-08" }, headers: {} });
     assert.equal(get.status, 200);
     assert.equal((get.body as { checks: Record<string, boolean> }).checks.b01, true);
   });
 
   it("404 unknown", async () => {
-    const res = await route({ method: "GET", path: "/api/nope", query: {} });
+    const res = await route({ method: "GET", path: "/api/nope", query: {}, headers: {} });
     assert.equal(res.status, 404);
+  });
+
+  it("auth disabled locally: open api, config disabled", async () => {
+    const cfg = await route({ method: "GET", path: "/api/auth/config", query: {}, headers: {} });
+    assert.equal(cfg.status, 200);
+    assert.equal((cfg.body as { enabled: boolean }).enabled, false);
+    const days = await route({ method: "GET", path: "/api/days", query: {}, headers: {} });
+    assert.equal(days.status, 200);
+  });
+
+  it("auth enabled: gate + bearer pass + me", async () => {
+    Object.assign(process.env, AUTH_ENV);
+    const anon = await route({ method: "GET", path: "/api/days", query: {}, headers: {} });
+    assert.equal(anon.status, 401);
+    const token = issueSessionToken("google_123", "alexey@datatalks.club", AUTH_ENV.JWT_SECRET);
+    const authed = await route({
+      method: "GET", path: "/api/days", query: {},
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(authed.status, 200);
+    const me = await route({
+      method: "GET", path: "/api/auth/me", query: {},
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(me.status, 200);
+    assert.equal((me.body as { email: string }).email, "alexey@datatalks.club");
+    const bad = await route({
+      method: "GET", path: "/api/days", query: {},
+      headers: { authorization: "Bearer broken" },
+    });
+    assert.equal(bad.status, 401);
   });
 });

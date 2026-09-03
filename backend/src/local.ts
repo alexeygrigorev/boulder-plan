@@ -60,6 +60,9 @@ const server = createServer(async (req, res) => {
         method: req.method ?? "GET",
         path: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
+        headers: Object.fromEntries(
+          Object.entries(req.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(", ") : v]),
+        ),
         body,
       });
       res.writeHead(out.status, {

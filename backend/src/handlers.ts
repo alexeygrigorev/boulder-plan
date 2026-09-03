@@ -1,13 +1,19 @@
 // Маршрутизация API — общая для Lambda и локального сервера.
-// Никаких зависимостей: вход — { method, path, query, body }, выход — { status, body }.
+// Никаких зависимостей: вход — { method, path, query, body, headers }, выход — { status, body }.
+// Auth: если задан AUTH_* (прод), всё кроме /api/health и /api/auth/* требует Bearer.
+// Локально без AUTH_* — открыто, как раньше.
 import { loadPlan } from "./plan.ts";
 import { createStore } from "./storage.ts";
+import { loadConfig, sharedAuthPublicConfig, type AppConfig } from "./config.ts";
+import { bearerEmail, issueSessionToken } from "./jwt.ts";
+import { exchangeCognitoCode } from "./cognito.ts";
 import type { ProgressEntry } from "./types.ts";
 
 export interface ApiRequest {
   method: string;
   path: string;
   query: Record<string, string>;
+  headers: Record<string, string | undefined>;
   body?: unknown;
 }
 
@@ -26,13 +32,41 @@ function isDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-export async function route(req: ApiRequest): Promise<ApiResponse> {
+export async function route(req: ApiRequest, config: AppConfig = loadConfig()): Promise<ApiResponse> {
   const plan = loadPlan();
   const store = createStore();
-  const { method, path, query } = req;
+  const { method, path, query, headers } = req;
 
   if (method === "GET" && path === "/api/health") {
-    return json({ ok: true, days: plan.days.length, period: plan.meta.period });
+    return json({ ok: true, days: plan.days.length, period: plan.meta.period, auth: Boolean(config.auth) });
+  }
+  if (method === "GET" && path === "/api/auth/config") {
+    return json(config.auth ? { enabled: true, ...sharedAuthPublicConfig(config.auth) } : { enabled: false });
+  }
+  if (method === "POST" && path === "/api/auth/callback") {
+    if (!config.auth) return json({ error: "Shared authentication is not configured." }, 404);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.code !== "string" || typeof b.code_verifier !== "string" || typeof b.nonce !== "string") {
+      return json({ error: "Invalid authentication callback." }, 400);
+    }
+    try {
+      const claims = await exchangeCognitoCode(b.code, b.code_verifier, b.nonce, config.auth);
+      const access = issueSessionToken(claims.sub, claims.email, config.jwtSecret);
+      return json({ access, email: claims.email, name: claims.name });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : "Sign-in failed." }, 401);
+    }
+  }
+
+  // Дальше — закрытая зона, если auth включён.
+  let email: string | null = null;
+  if (config.auth) {
+    email = bearerEmail(headers, config.jwtSecret);
+    if (!email) return json({ error: "unauthorized" }, 401);
+  }
+  if (method === "GET" && path === "/api/auth/me") {
+    if (!config.auth) return json({ enabled: false, email: null });
+    return json({ enabled: true, email });
   }
   if (method === "GET" && path === "/api/days") {
     return json({
