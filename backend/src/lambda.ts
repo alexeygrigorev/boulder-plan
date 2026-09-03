@@ -7,6 +7,7 @@ import { route } from "./handlers.ts";
 import { loadConfig } from "./config.ts";
 
 interface ApiGatewayEvent {
+  warmup?: boolean;
   requestContext?: { http?: { method?: string; path?: string } };
   rawPath?: string;
   rawQueryString?: string;
@@ -79,6 +80,7 @@ async function serveSpa(pathname: string, frontendBuild: string): Promise<{ stat
 const config = loadConfig();
 
 export const handler = async (event: ApiGatewayEvent) => {
+  if (event.warmup === true) return { statusCode: 200, body: "warm" };
   const method = event.requestContext?.http?.method ?? "GET";
   const pathName = event.rawPath ?? event.requestContext?.http?.path ?? "/";
   const headers = lowerHeaders(event.headers);

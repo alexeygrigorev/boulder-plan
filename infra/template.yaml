@@ -1,49 +1,67 @@
-# Serverless-инфра (деплой позже — куда, покажешь отдельно).
-# SAM: одна Lambda (весь API) + HttpApi + DynamoDB для прогресса.
-# Фронтенд — статика (S3/CloudFront), собирается отдельно: npm --workspace frontend run build
-AWSTemplateFormatVersion: "2010-09-09"
-Transform: AWS::Serverless-2016-10-31
-Description: boulder-plan — трекер тренировок (Lambda + HttpApi + DynamoDB)
+# boulder-plan: Lambda (API + SPA) за HttpApi, домен boulder.dtcdev.click,
+# прогресс в DynamoDB, вход через shared Cognito (auth.dtcdev.click).
+# Как ai-engineering-gym: plain CloudFormation, артефакт собирается deploy.sh.
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Boulder plan tracker behind shared auth (Lambda + HttpApi + DynamoDB)
 
-Globals:
-  Function:
-    Runtime: nodejs20.x
-    MemorySize: 256
-    Timeout: 10
-    Environment:
-      Variables:
-        TABLE_NAME: !Ref ProgressTable
+Parameters:
+  CodeBucket:
+    Type: String
+    Description: S3 bucket holding the built Lambda zip
+  CodeKey:
+    Type: String
+    Description: S3 key of the Lambda zip
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 50
+  DomainName:
+    Type: String
+    Default: boulder.dtcdev.click
+  HostedZoneId:
+    Type: String
+    Default: Z05963572WVWFHDQZH5NE
+    Description: Route53 hosted zone id for dtcdev.click
+  AuthBaseUrl:
+    Type: String
+    Default: https://auth.dtcdev.click
+  AuthClientId:
+    Type: String
+    Description: Cognito app client ID for boulder-plan
+  AuthIssuer:
+    Type: String
+    Description: Cognito user-pool issuer URL
+  AuthJwksUrl:
+    Type: String
+    Description: Cognito user-pool JWKS URL
 
 Resources:
-  Api:
-    Type: AWS::Serverless::HttpApi
+  LambdaRole:
+    Type: AWS::IAM::Role
     Properties:
-      CorsConfiguration:
-        AllowOrigins: ["*"]
-        AllowMethods: ["GET", "PUT", "OPTIONS"]
-        AllowHeaders: ["content-type"]
-
-  ApiFunction:
-    Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: nodejs20.x
-    Properties:
-      CodeUri: ../backend/
-      Handler: dist/src/lambda.handler
-      Events:
-        Proxy:
-          Type: HttpApi
-          Properties:
-            Path: /api/{proxy+}
-            Method: "*"
-            ApiId: !Ref Api
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref ProgressTable
+        - PolicyName: progress-table-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:DescribeTable, dynamodb:GetItem, dynamodb:PutItem]
+                Resource: !GetAtt ProgressTable.Arn
 
   ProgressTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      TableName: boulder-plan-progress
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
         - AttributeName: pk
@@ -51,8 +69,127 @@ Resources:
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  BoulderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: boulder-plan
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: dist/src/lambda.handler
+      MemorySize: 512
+      Timeout: 29
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ProgressTable
+          JWT_SECRET: !Ref JwtSecret
+          NODE_ENV: production
+          FRONTEND_BUILD: /var/task/frontend
+          AUTH_BASE_URL: !Ref AuthBaseUrl
+          AUTH_CLIENT_ID: !Ref AuthClientId
+          AUTH_CALLBACK_URL: !Sub 'https://${DomainName}/auth/callback'
+          AUTH_LOGOUT_URL: !Sub 'https://${DomainName}/'
+          AUTH_ISSUER: !Ref AuthIssuer
+          AUTH_JWKS_URL: !Ref AuthJwksUrl
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: boulder-plan
+      ProtocolType: HTTP
+
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt BoulderFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: $default
+      Target: !Sub 'integrations/${Integration}'
+
+  DefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BoulderFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+  WarmRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(5 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt BoulderFunction.Arn
+          Id: warm
+          Input: '{"warmup": true}'
+
+  WarmPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BoulderFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WarmRule.Arn
+
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  ApiDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref Certificate
+          EndpointType: REGIONAL
+
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref ApiDomain
+      Stage: !Ref DefaultStage
+
+  AliasRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiDomain.RegionalHostedZoneId
 
 Outputs:
-  ApiUrl:
-    Description: HTTP API base URL
-    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+  ApiEndpoint:
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  CustomDomain:
+    Value: !Sub 'https://${DomainName}'
