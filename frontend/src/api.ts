@@ -239,6 +239,7 @@ export interface RouteAttempt {
   recordedAt: string;
   result: string;
   failureReason: string | null;
+  workoutDate: string | null;
 }
 
 export interface RouteCard {
