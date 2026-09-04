@@ -451,6 +451,85 @@ function doneCriteriaHtml(s: { heading: string; body: string }): string {
   </details>`;
 }
 
+// Библиотека трасс внизу тренировочного дня: QR + сканер + список зала.
+// Тяжёлая работа (карточка, попытки) живёт во вкладке «Трассы», отсюда — прыжки туда.
+function dayRoutesHtml(): string {
+  const gym = gymsCache.find((g) => g.id === selGym);
+  const canScan = typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector !== "undefined";
+  return `<h3>Трассы · ${esc(gym?.name ?? "")}</h3>
+  ${catalogWarn ? `<div class="cue">${esc(catalogWarn)}</div>` : ""}
+  <input class="search" id="dayqr" placeholder="Ссылка с QR трассы…" value="${esc(qrText)}" inputmode="url" />
+  <div class="subchips">
+    <button class="subchip active" id="dayqrgo">Распознать</button>
+    ${canScan ? `<button class="subchip" id="dayqrscan">📷 Сканировать</button>` : ""}
+    <button class="subchip" id="daylib">Библиотека трасс →</button>
+  </div>
+  ${qrMsg ? `<div class="cue">${esc(qrMsg)}</div>` : ""}
+  ${routesList.map((it) => {
+    const r = it.route;
+    const st = it.personalState;
+    return `<button class="listitem" data-dayroute="${esc(r.id)}">
+      <div class="d">${esc(routeTitle(r))}${st?.sent ? " ✓" : ""}</div>
+      <div class="s">${esc([r.sector, r.grade.raw || "без грейда"].filter(Boolean).join(" · "))}${st ? ` · ${esc(statusRu(st.status))}` : ""}</div>
+    </button>`;
+  }).join("") || `<p class="meta">Пока пусто — отсканируй QR у стены.</p>`}`;
+}
+
+function wireDayRoutes(): void {
+  const qi = document.getElementById("dayqr") as HTMLInputElement | null;
+  if (qi) qi.oninput = () => {
+    qrText = qi.value;
+  };
+  const go = document.getElementById("dayqrgo") as HTMLButtonElement | null;
+  if (go) go.onclick = () => {
+    flushSave();
+    tab = "routes";
+    void doResolve();
+  };
+  const sc = document.getElementById("dayqrscan") as HTMLButtonElement | null;
+  if (sc) {
+    sc.onclick = () => {
+      flushSave();
+      tab = "routes";
+      void renderRoutes().then(() => toggleScan());
+    };
+  }
+  const lib = document.getElementById("daylib") as HTMLButtonElement | null;
+  if (lib) {
+    lib.onclick = () => {
+      flushSave();
+      tab = "routes";
+      void renderRoutes();
+    };
+  }
+  app.querySelectorAll<HTMLButtonElement>("[data-dayroute]").forEach((b) => {
+    b.onclick = () => {
+      flushSave();
+      tab = "routes";
+      void openCard(b.dataset.dayroute!);
+    };
+  });
+}
+
+async function paintDayRoutes(daySnapshot: string): Promise<void> {
+  try {
+    if (!gymsCache.length) gymsCache = (await api.gyms()).gyms;
+    if (!gymsCache.some((g) => g.id === selGym)) selGym = gymsCache[0]?.id ?? "gym_berta";
+    const res = await api.gymRoutes(selGym);
+    if (daySnapshot !== date || tab !== "today") return;
+    routesList = res.items;
+    catalogWarn = res.catalog.warning;
+    const box = document.getElementById("dayroutes");
+    if (!box) return;
+    box.innerHTML = dayRoutesHtml();
+    wireDayRoutes();
+  } catch {
+    if (daySnapshot !== date || tab !== "today") return;
+    const box = document.getElementById("dayroutes");
+    if (box) box.innerHTML = `<p class="meta">Трассы не загрузились — открой вкладку «Трассы».</p>`;
+  }
+}
+
 function renderDay(): void {
   if (!day) {
     void loadDay();
@@ -478,13 +557,12 @@ function renderDay(): void {
     <div class="meters" id="meters">${metersHtml()}</div>
     <div class="progress"><div style="width:${pct}%"></div></div>
     <div class="proglabel">${done}/${d.blocks.length} · ${pct}%</div>
-    ${isWorkout ? `<button class="listitem" id="gotoroutes"><div class="d">🧗 Трассы зала</div>
-    <div class="s">QR у стены, попытки, подбор под тренировку</div></button>` : ""}
     <div id="blocks">${d.blocks.map((b) => blockHtml(b, isWorkout)).join("")}</div>
     <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
     ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
     ${doneCriteria ? doneCriteriaHtml(doneCriteria) : ""}
     ${restSections.map((s) => `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`).join("")}
+    ${isWorkout ? `<div id="dayroutes"><p class="meta">Загрузка трасс…</p></div>` : ""}
     <h3>Заметка дня</h3>
     <textarea class="note" id="note" placeholder="Техника одной фразой, плечо/пальцы/колено 0–10…">${esc(note)}</textarea>
     <div class="meta" id="savestate"></div>
@@ -495,11 +573,7 @@ function renderDay(): void {
   wireBlocks();
   wireMeters();
   paintSaveState();
-  const gor = document.getElementById("gotoroutes") as HTMLButtonElement | null;
-  if (gor) gor.onclick = () => {
-    tab = "routes";
-    void renderRoutes();
-  };
+  if (isWorkout) void paintDayRoutes(d.date);
 
   // Материалы недели подгружаются отдельно, чтобы день открывался сразу
   if (d.week && d.week !== "prestart") {
