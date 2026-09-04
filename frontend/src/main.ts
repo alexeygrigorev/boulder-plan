@@ -936,7 +936,7 @@ async function renderRoutes(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API.</p>${tabsHtml()}`;
+    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
     wireTabs();
     return;
   }
