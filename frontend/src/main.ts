@@ -900,8 +900,21 @@ async function doState(status: string): Promise<void> {
   }
 }
 
+let attemptBusy = false;
+let lastAttemptTap = 0;
+const ATTEMPT_DEBOUNCE_MS = 3000;
+
 async function doAttempt(result: string): Promise<void> {
   if (!openRouteId) return;
+  // Двойной тап = случайное нажатие: слишком быстрые клики не считаем.
+  if (attemptBusy) return;
+  if (Date.now() - lastAttemptTap < ATTEMPT_DEBOUNCE_MS) {
+    qrMsg = "Слишком быстро подряд — не считаю, это похоже на случайный тап.";
+    renderRoutesView();
+    return;
+  }
+  attemptBusy = true;
+  lastAttemptTap = Date.now();
   try {
     await api.addAttempt({
       routeId: openRouteId,
@@ -915,6 +928,8 @@ async function doAttempt(result: string): Promise<void> {
   } catch (e) {
     qrMsg = e instanceof Error ? e.message : "Попытка не записалась";
     renderRoutesView();
+  } finally {
+    attemptBusy = false;
   }
 }
 
