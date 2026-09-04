@@ -944,6 +944,40 @@ function newAttemptId(): string {
   }
 }
 
+// Своё фото трассы: ужимаем на клиенте (≤800px, JPEG), чтобы пролезть в лимит API.
+function fileToPhotoUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const k = Math.min(1, 800 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k));
+      c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext("2d")?.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.68));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("not an image"));
+    };
+    img.src = url;
+  });
+}
+
+async function saveRoutePhoto(routeId: string, photoUrl: string | null): Promise<void> {
+  try {
+    await api.enrichRoute(routeId, { photoUrl });
+    cardCache.delete(routeId);
+    qrMsg = photoUrl ? "Фото прикреплено." : "Фото убрано.";
+    await openCard(routeId);
+  } catch {
+    qrMsg = "Фото не сохранилось (нужен https или файл поменьше).";
+    renderRoutesView();
+  }
+}
+
 function routeTitle(r: RouteWithPersonal["route"]): string {
   return r.name || r.holdDescription || (r.canonicalUrl ? "BETA7-трасса" : "Ручная трасса");
 }
@@ -1098,6 +1132,17 @@ function routeCardHtml(c: RouteCard): string {
   return `<div class="acc">
     <div class="d" style="font-weight:700">${esc(routeTitle(r))}</div>
     <div class="s meta">${esc([r.gymName, r.sector, r.grade.raw || "грейд не указан"].filter(Boolean).join(" · "))}</div>
+    ${r.photoUrl ? `<img class="routephoto" src="${esc(r.photoUrl)}" alt="Фото трассы" loading="lazy" />
+    ${r.photoSource === "beta7" ? `<div class="s meta">Фото сектора с сайта — не конкретной трассы</div>` : ""}` : ""}
+    <div class="cue">Фото:
+      <input class="search" id="ph-url" placeholder="Вставь ссылку на фото…" value="" inputmode="url" />
+      <div class="subchips">
+        <button class="subchip" id="ph-save">Прикрепить ссылку</button>
+        <button class="subchip" id="ph-pick">📷 Снять / выбрать…</button>
+        ${r.photoUrl ? `<button class="subchip" id="ph-del">Убрать фото</button>` : ""}
+      </div>
+      <input type="file" id="ph-file" accept="image/*" style="display:none" />
+    </div>
     ${r.styles.length ? `<div class="terms">${r.styles.map((s) => `<span class="term">${esc(s)}</span>`).join("")}</div>` : ""}
     ${r.setter ? `<div class="s meta">Постановщик: ${esc(r.setter)}</div>` : ""}
     ${!r.sector || !r.grade.raw ? `<div class="cue">Деталей мало — дополни:
@@ -1175,6 +1220,40 @@ function wireCard(c: RouteCard): void {
   };
   const tm = document.getElementById("tm-toggle") as HTMLButtonElement | null;
   if (tm) tm.onclick = () => void doTimer();
+  const phSave = document.getElementById("ph-save") as HTMLButtonElement | null;
+  if (phSave) {
+    phSave.onclick = () => {
+      const v = (document.getElementById("ph-url") as HTMLInputElement).value.trim();
+      if (!v) {
+        qrMsg = "Вставь ссылку на фото или сними камерой.";
+        renderRoutesView();
+        return;
+      }
+      void saveRoutePhoto(c.route.id, v);
+    };
+  }
+  const phPick = document.getElementById("ph-pick") as HTMLButtonElement | null;
+  if (phPick) {
+    phPick.onclick = () => {
+      (document.getElementById("ph-file") as HTMLInputElement).click();
+    };
+  }
+  const phFile = document.getElementById("ph-file") as HTMLInputElement | null;
+  if (phFile) {
+    phFile.onchange = () => {
+      const f = phFile.files?.[0];
+      if (!f) return;
+      void fileToPhotoUrl(f).then(
+        (dataUrl) => saveRoutePhoto(c.route.id, dataUrl),
+        () => {
+          qrMsg = "Файл не похож на фото.";
+          renderRoutesView();
+        },
+      );
+    };
+  }
+  const phDel = document.getElementById("ph-del") as HTMLButtonElement | null;
+  if (phDel) phDel.onclick = () => void saveRoutePhoto(c.route.id, null);
   const es = document.getElementById("e-save") as HTMLButtonElement | null;
   if (es) {
     es.onclick = async () => {

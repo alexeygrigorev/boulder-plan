@@ -204,6 +204,8 @@ export interface RouteItem {
   styles: string[];
   setter: string | null;
   availability: string;
+  photoUrl: string | null;
+  photoSource: "beta7" | "manual" | null;
 }
 
 export interface RoutePersonalState {
