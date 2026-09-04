@@ -53,6 +53,25 @@ describe("api", () => {
     assert.equal((get.body as { checks: Record<string, boolean> }).checks.b01, true);
   });
 
+  it("progress keeps note + metrics with updatedAt, getMany batch", async () => {
+    const put = await route({
+      method: "PUT", path: "/api/progress", query: {}, headers: {},
+      body: { date: "2026-09-10", checks: { b01: true }, note: "техника одной фразой", metrics: { shoulder: 3, energy: 4 } },
+    });
+    assert.equal(put.status, 200);
+    assert.ok(typeof (put.body as { updatedAt: string }).updatedAt === "string");
+    const get = await route({ method: "GET", path: "/api/progress", query: { date: "2026-09-10" }, headers: {} });
+    assert.equal(get.status, 200);
+    const entry = get.body as { note: string; metrics: { shoulder: number; energy: number }; updatedAt: string };
+    assert.equal(entry.note, "техника одной фразой");
+    assert.deepEqual(entry.metrics, { shoulder: 3, energy: 4 });
+
+    const { createStore } = await import("../src/storage.ts");
+    const many = await createStore().getMany(["2026-09-10", "2026-09-11"]);
+    assert.equal(many.get("2026-09-10")?.note, "техника одной фразой");
+    assert.equal(many.get("2026-09-11"), undefined);
+  });
+
   it("404 unknown", async () => {
     const res = await route({ method: "GET", path: "/api/nope", query: {}, headers: {} });
     assert.equal(res.status, 404);

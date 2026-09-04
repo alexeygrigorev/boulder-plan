@@ -8,6 +8,8 @@ import type { ProgressEntry } from "./types.ts";
 export interface ProgressStore {
   get(date: string): Promise<ProgressEntry | null>;
   put(entry: ProgressEntry): Promise<ProgressEntry>;
+  /** Пакетное чтение для /api/activity: один проход вместо N отдельных get. */
+  getMany(dates: string[]): Promise<Map<string, ProgressEntry>>;
 }
 
 function dataFile(): string {
@@ -29,6 +31,15 @@ export class FileStore implements ProgressStore {
   async get(date: string): Promise<ProgressEntry | null> {
     return readAll(dataFile())[date] ?? null;
   }
+  async getMany(dates: string[]): Promise<Map<string, ProgressEntry>> {
+    const all = readAll(dataFile());
+    const out = new Map<string, ProgressEntry>();
+    for (const d of dates) {
+      const e = all[d];
+      if (e) out.set(d, e);
+    }
+    return out;
+  }
   async put(entry: ProgressEntry): Promise<ProgressEntry> {
     const file = dataFile();
     mkdirSync(dirname(file), { recursive: true });
@@ -39,24 +50,58 @@ export class FileStore implements ProgressStore {
   }
 }
 
+// Один клиент на весь Lambda-инстанс: раньше каждый get() создавал новый
+// DynamoDBClient, и /api/activity открывал 186 клиентов параллельно.
+let sharedDocPromise: Promise<import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient> | null = null;
+
+async function sharedDoc(): Promise<import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient> {
+  if (!sharedDocPromise) {
+    sharedDocPromise = (async () => {
+      // Ленивый импорт, чтобы локально не тянуть @aws-sdk.
+      const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+      const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
+      return new DynamoDBDocumentClient(new DynamoDBClient({}));
+    })();
+    sharedDocPromise.catch(() => {
+      sharedDocPromise = null;
+    });
+  }
+  return sharedDocPromise;
+}
+
+const GET_MANY_CONCURRENCY = 12;
+
 class DynamoStore implements ProgressStore {
   private table: string;
   constructor(table: string) {
     this.table = table;
   }
-  private async doc(): Promise<import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient> {
-    // Ленивый импорт, чтобы локально не тянуть @aws-sdk.
-    const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
-    const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb");
-    return new DynamoDBDocumentClient(new DynamoDBClient({}));
-  }
   async get(date: string): Promise<ProgressEntry | null> {
-    const doc = await this.doc();
+    const doc = await sharedDoc();
     const res = (await doc.get({ TableName: this.table, Key: { pk: `day#${date}` } })) as { Item?: ProgressEntry };
     return res.Item ?? null;
   }
+  async getMany(dates: string[]): Promise<Map<string, ProgressEntry>> {
+    const doc = await sharedDoc();
+    const out = new Map<string, ProgressEntry>();
+    for (let i = 0; i < dates.length; i += GET_MANY_CONCURRENCY) {
+      const chunk = dates.slice(i, i + GET_MANY_CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(async (d) => {
+          const res = (await doc.get({ TableName: this.table, Key: { pk: `day#${d}` } })) as {
+            Item?: ProgressEntry;
+          };
+          return [d, res.Item ?? null] as const;
+        }),
+      );
+      for (const [d, item] of results) {
+        if (item) out.set(d, item);
+      }
+    }
+    return out;
+  }
   async put(entry: ProgressEntry): Promise<ProgressEntry> {
-    const doc = await this.doc();
+    const doc = await sharedDoc();
     await doc.put({ TableName: this.table, Item: { pk: `day#${entry.date}`, ...entry } });
     return entry;
   }
