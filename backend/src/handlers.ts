@@ -8,7 +8,8 @@ import { loadConfig, sharedAuthPublicConfig, type AppConfig } from "./config.ts"
 import { bearerEmail, issueSessionToken } from "./jwt.ts";
 import { exchangeCognitoCode } from "./cognito.ts";
 import type { ProgressEntry } from "./types.ts";
-import { loadRoutesDoc, saveRoutesDoc } from "./routeStore.ts";
+import { loadRoutesDoc, saveRoutesDoc, recordAttempt, setRouteStatus, startTimer, stopTimer, findRouteById } from "./routeStore.ts";
+import { FAILURE_REASONS, ROUTE_STATUSES } from "./routeTypes.ts";
 import { createManualRoute, enrichRoute, listGymRoutes, resolveQr } from "./routeApi.ts";
 import { UnsafeExternalUrlError, UnsupportedQrPayloadError } from "./beta7.ts";
 
@@ -210,6 +211,113 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
     } catch {
       return json({ error: "unknown route" }, 404);
     }
+  }
+  if (method === "GET" && path === "/api/route") {
+    if (typeof query.id !== "string" || !query.id) return json({ error: "id required" }, 400);
+    const doc = await loadRoutesDoc();
+    const r = findRouteById(doc, query.id);
+    if (!r) return json({ error: "unknown route" }, 404);
+    return json({
+      route: r,
+      personalState: doc.states[r.id] ?? null,
+      attempts: doc.attempts.filter((a) => a.routeId === r.id),
+      timers: Object.values(doc.timers).filter((t) => t.routeId === r.id),
+    });
+  }
+  if (method === "PUT" && path === "/api/route/state") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.routeId !== "string" || !b.routeId) return json({ error: "routeId required" }, 400);
+    if (typeof b.status !== "string" || !(ROUTE_STATUSES as string[]).includes(b.status)) {
+      return json({ error: "unknown status" }, 400);
+    }
+    const doc = await loadRoutesDoc();
+    if (!findRouteById(doc, b.routeId)) return json({ error: "unknown route" }, 404);
+    const prio = typeof b.priority === "number" && Number.isInteger(b.priority) ? b.priority : undefined;
+    if (prio !== undefined && (prio < 0 || prio > 5)) return json({ error: "priority 0-5" }, 400);
+    const pd = b.personalDifficulty === null || b.personalDifficulty === undefined
+      ? undefined
+      : typeof b.personalDifficulty === "number" && b.personalDifficulty >= 0 && b.personalDifficulty <= 10
+        ? b.personalDifficulty
+        : NaN;
+    if (typeof pd === "number" && Number.isNaN(pd)) return json({ error: "personalDifficulty 0-10" }, 400);
+    const st = setRouteStatus(doc, b.routeId, b.status as (typeof ROUTE_STATUSES)[number], {
+      ...(prio !== undefined ? { priority: prio } : {}),
+      ...(typeof b.notes === "string" || b.notes === null ? { notes: b.notes } : {}),
+      ...(pd !== undefined ? { personalDifficulty: pd } : {}),
+    }, new Date().toISOString());
+    await saveRoutesDoc(doc);
+    return json(st);
+  }
+  if (method === "POST" && path === "/api/route/attempts") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.routeId !== "string" || !b.routeId) return json({ error: "routeId required" }, 400);
+    if (typeof b.clientAttemptId !== "string" || b.clientAttemptId.length < 4) {
+      return json({ error: "clientAttemptId required" }, 400);
+    }
+    const results = ["FAILED", "SENT", "FLASHED", "ABORTED", "SKIPPED"];
+    if (typeof b.result !== "string" || !results.includes(b.result)) return json({ error: "unknown result" }, 400);
+    if (b.failureReason !== undefined && b.failureReason !== null &&
+      (typeof b.failureReason !== "string" || !(FAILURE_REASONS as string[]).includes(b.failureReason))) {
+      return json({ error: "unknown failureReason" }, 400);
+    }
+    const doc = await loadRoutesDoc();
+    const r = findRouteById(doc, b.routeId);
+    if (!r) return json({ error: "unknown route" }, 404);
+    // Flash — только первой попыткой, иначе нужен явный override (spec qa/22).
+    if (b.result === "FLASHED" && b.allowFlashOverride !== true) {
+      const prior = doc.attempts.some((a) => a.routeId === b.routeId && a.clientAttemptId !== b.clientAttemptId);
+      if (prior || doc.states[b.routeId]?.totalAttempts) {
+        return json({ error: "flash needs first attempt or allowFlashOverride" }, 400);
+      }
+    }
+    const numOrNull = (v: unknown, min: number, max: number): number | null | undefined => {
+      if (v === undefined || v === null) return null;
+      if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) return undefined;
+    };
+    const pd = numOrNull(b.perceivedDifficulty, 0, 10);
+    const rest = numOrNull(b.restBeforeSeconds, 0, 24 * 3600);
+    const climb = numOrNull(b.climbingSeconds, 0, 24 * 3600);
+    if (pd === undefined || rest === undefined || climb === undefined) return json({ error: "bad numeric field" }, 400);
+    const now = new Date().toISOString();
+    const { attempt, created } = recordAttempt(doc, {
+      clientAttemptId: b.clientAttemptId,
+      routeId: b.routeId,
+      workoutDate: typeof b.workoutDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.workoutDate) ? b.workoutDate : null,
+      exerciseId: typeof b.exerciseId === "string" ? b.exerciseId : null,
+      result: b.result as "FAILED" | "SENT" | "FLASHED" | "ABORTED" | "SKIPPED",
+      failureReason: (b.failureReason ?? null) as null | (typeof FAILURE_REASONS)[number],
+      perceivedDifficulty: pd,
+      restBeforeSeconds: rest !== null ? Math.round(rest) : null,
+      climbingSeconds: climb !== null ? Math.round(climb) : null,
+      notes: typeof b.notes === "string" ? b.notes.slice(0, 2000) : null,
+    }, now);
+    await saveRoutesDoc(doc);
+    return json(attempt, created ? 201 : 200);
+  }
+  if (method === "GET" && path === "/api/route/attempts") {
+    if (typeof query.routeId !== "string" || !query.routeId) return json({ error: "routeId required" }, 400);
+    const doc = await loadRoutesDoc();
+    return json({ items: doc.attempts.filter((a) => a.routeId === query.routeId) });
+  }
+  if (method === "POST" && path === "/api/route/timer/start") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.routeId !== "string" || !b.routeId) return json({ error: "routeId required" }, 400);
+    if (typeof b.workoutDate !== "string" || !isDate(b.workoutDate)) return json({ error: "workoutDate YYYY-MM-DD" }, 400);
+    const doc = await loadRoutesDoc();
+    if (!findRouteById(doc, b.routeId)) return json({ error: "unknown route" }, 404);
+    const t = startTimer(doc, b.workoutDate, b.routeId, new Date().toISOString());
+    await saveRoutesDoc(doc);
+    return json(t);
+  }
+  if (method === "POST" && path === "/api/route/timer/stop") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.routeId !== "string" || !b.routeId) return json({ error: "routeId required" }, 400);
+    if (typeof b.workoutDate !== "string" || !isDate(b.workoutDate)) return json({ error: "workoutDate YYYY-MM-DD" }, 400);
+    const doc = await loadRoutesDoc();
+    if (!findRouteById(doc, b.routeId)) return json({ error: "unknown route" }, 404);
+    const t = stopTimer(doc, b.workoutDate, b.routeId, new Date().toISOString());
+    await saveRoutesDoc(doc);
+    return json(t);
   }
   if (method === "GET" && path === "/api/activity") {
     const { from = plan.meta.period.from, to = plan.meta.period.to } = query;
