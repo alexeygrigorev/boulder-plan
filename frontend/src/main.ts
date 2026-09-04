@@ -18,6 +18,8 @@ let day: PlanDay | null = null;
 let checks: Record<string, boolean> = {};
 let note = "";
 let metrics: DayMetrics = {};
+let blockNotes: Record<string, string> = {};
+let openNote: string | null = null;
 let daysCache: { date: string; title: string; format: string | null; week: string }[] = [];
 let saveTimer: number | undefined;
 const timers = new Map<string, { left: number; total: number; on: boolean; int?: number }>();
@@ -562,13 +564,41 @@ function wireBlocks(): void {
   app.querySelectorAll<HTMLButtonElement>("[data-timer]").forEach((b) => {
     b.onclick = () => toggleTimer(b.dataset.timer!);
   });
+  app.querySelectorAll<HTMLButtonElement>("[data-notetoggle]").forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.notetoggle!;
+      openNote = openNote === id ? null : id;
+      renderDay();
+      const ta = document.querySelector<HTMLTextAreaElement>(`[data-blocknote="${id}"]`);
+      if (ta) {
+        ta.focus();
+        ta.selectionStart = ta.value.length;
+      }
+    };
+  });
+  app.querySelectorAll<HTMLTextAreaElement>("[data-blocknote]").forEach((ta) => {
+    ta.oninput = () => {
+      const id = ta.dataset.blocknote!;
+      if (ta.value.trim()) blockNotes[id] = ta.value;
+      else delete blockNotes[id];
+      scheduleSave();
+    };
+  });
 }
+
+const METER_DEFS: { key: keyof DayMetrics; label: string; min: number; max: number }[] = [
+  { key: "shoulder", label: "Плечо", min: 0, max: 10 },
+  { key: "fingers", label: "Пальцы", min: 0, max: 10 },
+  { key: "knee", label: "Колено", min: 0, max: 10 },
+  { key: "energy", label: "Энергия", min: 1, max: 5 },
+];
 
 function meterHtml(key: keyof DayMetrics, label: string, min: number, max: number): string {
   const v = metrics[key];
+  const val = v === undefined ? `<strong class="emptyval">${min}–${max}</strong>` : `<strong id="mv-${key}">${v}</strong>`;
   return `<div class="meter"><span>${label}</span>
     <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="-1" aria-label="${label} меньше">−</button>
-    <strong id="mv-${key}">${v === undefined ? "–" : v}</strong>
+    ${val}
     <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="1" aria-label="${label} больше">+</button>
   </div>`;
 }
@@ -614,8 +644,14 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
   const timeChip = showTimeline
     ? `${esc(b.start)}–${esc(b.end)}`
     : b.minutes > 0 ? `~${b.minutes} мин` : "";
+  const bn = blockNotes[b.id] ?? "";
+  // Заметка — только где задача реально её просит (план: «запиши/выпиши/…»,
+  // типы Журнал/Конспект) или где заметка уже есть.
+  const wantsNote = bn !== "" ||
     /конспект|журнал/i.test(b.kind) ||
     /запиш|выпиш|отметь|отмечай|сохрани|внеси|замерь|измерь|сними|сфотографируй/i.test(b.text);
+  const noteOpen = openNote === b.id || bn !== "";
+  const preview = bn.length > 42 ? bn.slice(0, 42) + "…" : bn;
   return `<div class="block ${checks[b.id] ? "done" : ""}">
     <div class="row1">
       <button class="check" data-check="${b.id}" aria-label="Отметить блок">${checks[b.id] ? "✓" : "○"}</button>
@@ -632,6 +668,10 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
       ? `<div class="timer"><span class="t" id="t-${b.id}">${fmtLeft(left)}</span>
         <button data-timer="${b.id}">${running ? "Пауза" : t ? "Дальше" : "Старт"}</button></div>`
       : ""}
+    <div class="bnote">
+      ${wantsNote ? `<button class="notetoggle" data-notetoggle="${b.id}">${bn ? `✎ ${esc(preview)}` : "✎ Заметка…"}</button>` : ""}
+      ${noteOpen && wantsNote ? `<textarea class="blocknote" data-blocknote="${b.id}" rows="2" placeholder="Заметка к этой задаче…">${esc(bn)}</textarea>` : ""}
+    </div>
   </div>`;
 }
 
