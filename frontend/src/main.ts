@@ -1365,8 +1365,16 @@ async function renderProg(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API.</p>${tabsHtml()}`;
+    const msg = apiErrorText(e);
+    app.innerHTML = `<header class="top">${navHtml()}</header>
+      <h1>Прогресс</h1>
+      <p>Нет связи с API: ${esc(msg)}</p>
+      <button class="listitem" id="retry"><div class="d">Попробовать снова</div>
+      <div class="s">Отметки дня при этом продолжают сохраняться</div></button>
+      ${tabsHtml()}`;
     wireTabs();
+    wireDayNavLite();
+    (document.getElementById("retry") as HTMLButtonElement).onclick = () => void renderProg();
     return;
   }
   const days = activityCache!.days;
@@ -1434,6 +1442,7 @@ async function renderProg(): Promise<void> {
   wireDayNavLite();
   app.querySelectorAll<HTMLButtonElement>("[data-date]").forEach((b) => {
     b.onclick = () => {
+      flushSave();
       date = b.dataset.date!;
       tab = "today";
       void loadDay();
