@@ -719,11 +719,9 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
     ? `${esc(b.start)}–${esc(b.end)}`
     : b.minutes > 0 ? `~${b.minutes} мин` : "";
   const bn = blockNotes[b.id] ?? "";
-  // Заметка — только где задача реально её просит (план: «запиши/выпиши/…»,
-  // типы Журнал/Конспект) или где заметка уже есть.
-  const wantsNote = bn !== "" ||
-    /конспект|журнал/i.test(b.kind) ||
-    /запиш|выпиш|отметь|отмечай|сохрани|внеси|замерь|измерь|сними|сфотографируй/i.test(b.text);
+  // Заметка — только где план явно просит (маркер 📝 в тексте задачи)
+  // или где заметка уже есть.
+  const wantsNote = bn !== "" || b.text.includes("📝");
   const noteOpen = openNote === b.id || bn !== "";
   const preview = bn.length > 42 ? bn.slice(0, 42) + "…" : bn;
   return `<div class="block ${checks[b.id] ? "done" : ""}">
