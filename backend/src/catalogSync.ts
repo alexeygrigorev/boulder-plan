@@ -52,6 +52,11 @@ export function applyParsedRoute(
     }
     if (parsed.styles.length) byCanonical.styles = parsed.styles;
     byCanonical.setter = parsed.setter ?? byCanonical.setter;
+    // Ручное фото важнее автоматного: сайт перезаписывает только пустое/своё.
+    if (parsed.photoUrl && (!byCanonical.photoUrl || byCanonical.photoSource === "beta7")) {
+      byCanonical.photoUrl = parsed.photoUrl;
+      byCanonical.photoSource = "beta7";
+    }
     byCanonical.availability = "ACTIVE";
     byCanonical.lastSeenAt = now;
     byCanonical.sourceFetchedAt = now;
@@ -78,6 +83,8 @@ export function applyParsedRoute(
     styles: parsed.styles,
     setter: parsed.setter,
     availability: "ACTIVE",
+    photoUrl: parsed.photoUrl,
+    photoSource: parsed.photoUrl ? "beta7" : null,
     firstSeenAt: now,
     lastSeenAt: now,
     sourceFetchedAt: now,
@@ -126,6 +133,7 @@ export function syncGymCatalogFromHtml(
       setter: ref.setter,
       sends: null,
       posts: null,
+      photoUrl: null,
       ageText: ref.ageText,
     };
     const { isNew } = applyParsedRoute(doc, gymId, mapped, now);

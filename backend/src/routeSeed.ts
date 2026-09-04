@@ -71,6 +71,8 @@ function seedRoute(): ExternalRoute {
     styles: ["footwork", "complexity", "technic", "balance"],
     setter: "fabi_pensel",
     availability: "ACTIVE",
+    photoUrl: null,
+    photoSource: null,
     firstSeenAt: "2026-09-03T00:00:00.000Z",
     lastSeenAt: "2026-09-03T00:00:00.000Z",
     sourceFetchedAt: "2026-09-03T13:20:15.000Z",

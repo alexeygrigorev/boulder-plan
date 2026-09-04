@@ -71,4 +71,20 @@ describe("beta7 public-page parser (fixtures, no API)", () => {
     const p = parseRoutePage("<html><head><title>Login</title></head><body>sign in</body></html>", "x".repeat(16), "https://beta7.app/route/" + "x".repeat(16));
     assert.ok(p.data.gradeRaw === "" && p.warnings.length > 0);
   });
+
+  it("route page: og:image becomes sector photo, missing stays null", () => {
+    const p = parseRoutePage(
+      routeHtml,
+      "jzquGG3GoYgvvQzFrKXnzvecLwm2~1787667606814",
+      "https://beta7.app/route/jzquGG3GoYgvvQzFrKXnzvecLwm2~1787667606814",
+    );
+    assert.ok(typeof p.data.photoUrl === "string" && p.data.photoUrl.startsWith("https://"));
+    assert.ok((p.fieldConfidence.photoUrl ?? 0) > 0);
+    const bare = parseRoutePage(
+      "<html><head><title>t 6A/BLAU • BETA7</title></head><body><h1>x</h1></body></html>",
+      "x".repeat(16),
+      "https://beta7.app/route/" + "x".repeat(16),
+    );
+    assert.equal(bare.data.photoUrl, null);
+  });
 });

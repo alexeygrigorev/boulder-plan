@@ -33,6 +33,24 @@ export interface QrResolveResult {
 
 const MANUAL_FIELDS = ["gymId", "sector", "gradeRaw", "name", "styles"];
 
+export type PhotoValidation = { ok: true; value: string | null } | { ok: false };
+
+// Фото трассы: https-ссылка (<=2000) или сжатое data:image (<=150KB — весь
+// routes-документ лежит одним item в Dynamo, раздувать нельзя).
+// undefined = поле не передавали, null = убрать фото.
+export function parsePhotoUrl(v: unknown): PhotoValidation {
+  if (v === undefined) return { ok: true, value: null };
+  if (v === null) return { ok: true, value: null };
+  if (typeof v !== "string" || !v) return { ok: false };
+  if (v.startsWith("https://") && v.length <= 2000 && !/["'\s<>]/.test(v)) {
+    return { ok: true, value: v };
+  }
+  if (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v) && v.length <= 150000) {
+    return { ok: true, value: v };
+  }
+  return { ok: false };
+}
+
 export function resolveQr(doc: RoutesDoc, payload: unknown, selectedGymId: unknown): QrResolveResult {
   if (typeof payload !== "string" || !payload.trim() || payload.length > 2048) {
     throw new UnsupportedQrPayloadError("QR payload is empty or too long");
@@ -82,6 +100,8 @@ export function resolveQr(doc: RoutesDoc, payload: unknown, selectedGymId: unkno
     styles: [],
     setter: null,
     availability: "UNKNOWN",
+    photoUrl: null,
+    photoSource: null,
     firstSeenAt: now,
     lastSeenAt: now,
     sourceFetchedAt: now,
@@ -158,6 +178,7 @@ export interface ManualRouteInput {
   styles?: string[];
   setter?: string | null;
   holdDescription?: string | null;
+  photoUrl?: string | null;
 }
 
 // Ручной ввод / обогащение (fallback из spec гл. 17.2). Для BETA7-зала без
@@ -170,6 +191,8 @@ export function createManualRoute(doc: RoutesDoc, input: ManualRouteInput, now: 
   const styles = Array.isArray(input.styles)
     ? input.styles.map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 12)
     : [];
+  const photo = parsePhotoUrl(input.photoUrl ?? null);
+  if (!photo.ok) throw new Error("bad photoUrl");
   const route: ExternalRoute = {
     id: newRouteId(gym.provider ?? "manual"),
     provider: gym.provider ?? "manual",
@@ -191,6 +214,8 @@ export function createManualRoute(doc: RoutesDoc, input: ManualRouteInput, now: 
     styles,
     setter: input.setter?.trim() || null,
     availability: "ACTIVE",
+    photoUrl: photo.value,
+    photoSource: photo.value ? "manual" : null,
     firstSeenAt: now,
     lastSeenAt: now,
     sourceFetchedAt: now,
@@ -202,7 +227,7 @@ export function createManualRoute(doc: RoutesDoc, input: ManualRouteInput, now: 
 export function enrichRoute(
   doc: RoutesDoc,
   routeId: string,
-  patch: { sector?: string | null; name?: string | null; gradeRaw?: string; styles?: string[]; setter?: string | null },
+  patch: { sector?: string | null; name?: string | null; gradeRaw?: string; styles?: string[]; setter?: string | null; photoUrl?: string | null },
   now: string,
 ): ExternalRoute {
   const route = doc.routes.find((r) => r.id === routeId);
@@ -214,6 +239,12 @@ export function enrichRoute(
     if (!route.holdDescription) route.holdDescription = route.name;
   }
   if (patch.setter !== undefined) route.setter = patch.setter?.trim() || null;
+  if (patch.photoUrl !== undefined) {
+    const photo = parsePhotoUrl(patch.photoUrl);
+    if (!photo.ok) throw new Error("bad photoUrl");
+    route.photoUrl = photo.value;
+    route.photoSource = photo.value ? "manual" : null;
+  }
   if (patch.styles !== undefined) {
     route.styles = patch.styles.map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 12);
   }

@@ -71,7 +71,13 @@ function normalizeDoc(raw: unknown): RoutesDoc {
   return {
     version: 1,
     gyms: Array.isArray(d.gyms) && d.gyms.length ? (d.gyms as Gym[]) : base.gyms,
-    routes: Array.isArray(d.routes) ? (d.routes as ExternalRoute[]) : base.routes,
+    routes: Array.isArray(d.routes)
+      ? (d.routes as ExternalRoute[]).map((r) => ({
+        ...r,
+        photoUrl: r.photoUrl ?? null,
+        photoSource: r.photoSource ?? null,
+      }))
+      : base.routes,
     states: typeof d.states === "object" && d.states !== null ? (d.states as RoutesDoc["states"]) : {},
     attempts: Array.isArray(d.attempts) ? (d.attempts as RouteAttempt[]) : [],
     timers: typeof d.timers === "object" && d.timers !== null ? (d.timers as RoutesDoc["timers"]) : {},

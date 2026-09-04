@@ -82,6 +82,9 @@ export interface ExternalRoute {
   firstSeenAt: string | null;
   lastSeenAt: string | null;
   sourceFetchedAt: string;
+  /** Фото: og:image сектора с сайта (beta7) или своё (manual). */
+  photoUrl: string | null;
+  photoSource: "beta7" | "manual" | null;
 }
 
 export interface UserRouteState {

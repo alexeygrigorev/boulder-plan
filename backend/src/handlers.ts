@@ -204,6 +204,9 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
   if (method === "POST" && path === "/api/gym/routes") {
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.gymId !== "string" || !b.gymId) return json({ error: "gymId required" }, 400);
+    if (b.photoUrl !== undefined && b.photoUrl !== null && typeof b.photoUrl !== "string") {
+      return json({ error: "bad photoUrl" }, 400);
+    }
     const doc = await loadRoutesDoc();
     try {
       const route = createManualRoute(doc, {
@@ -214,10 +217,12 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
         styles: Array.isArray(b.styles) ? b.styles.filter((s): s is string => typeof s === "string") : [],
         setter: typeof b.setter === "string" ? b.setter : null,
         holdDescription: typeof b.holdDescription === "string" ? b.holdDescription : null,
+        photoUrl: typeof b.photoUrl === "string" ? b.photoUrl : b.photoUrl === null ? null : undefined,
       }, new Date().toISOString());
       await saveRoutesDoc(doc);
       return json({ route, personalState: doc.states[route.id] ?? null }, 201);
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message === "bad photoUrl") return json({ error: "bad photoUrl" }, 400);
       return json({ error: "unknown gym" }, 404);
     }
   }
@@ -227,16 +232,21 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
     const doc = await loadRoutesDoc();
     try {
       const patch = (typeof b.patch === "object" && b.patch !== null ? b.patch : {}) as Record<string, unknown>;
+      if (patch.photoUrl !== undefined && patch.photoUrl !== null && typeof patch.photoUrl !== "string") {
+        return json({ error: "bad photoUrl" }, 400);
+      }
       const route = enrichRoute(doc, b.id, {
         sector: typeof patch.sector === "string" ? patch.sector : patch.sector === null ? null : undefined,
         name: typeof patch.name === "string" ? patch.name : patch.name === null ? null : undefined,
         gradeRaw: typeof patch.gradeRaw === "string" ? patch.gradeRaw : undefined,
         styles: Array.isArray(patch.styles) ? patch.styles.filter((s): s is string => typeof s === "string") : undefined,
         setter: typeof patch.setter === "string" ? patch.setter : patch.setter === null ? null : undefined,
+        photoUrl: typeof patch.photoUrl === "string" ? patch.photoUrl : patch.photoUrl === null ? null : undefined,
       }, new Date().toISOString());
       await saveRoutesDoc(doc);
       return json({ route, personalState: doc.states[route.id] ?? null });
-    } catch {
+    } catch (e) {
+      if (e instanceof Error && e.message === "bad photoUrl") return json({ error: "bad photoUrl" }, 400);
       return json({ error: "unknown route" }, 404);
     }
   }

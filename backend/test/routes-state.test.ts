@@ -90,6 +90,29 @@ describe("route state + attempts + timers", () => {
     assert.equal(res.status, 404);
   });
 
+  it("route photo: enrich set/clear, invalid rejected", async () => {
+    const id = await seedRouteId();
+    const url = "https://example.test/photo.jpg";
+    const set = await route({
+      method: "PUT", path: "/api/gym/route", query: {}, headers: {},
+      body: { id, patch: { photoUrl: url } },
+    });
+    assert.equal(set.status, 200);
+    assert.equal((set.body as { route: { photoUrl: string; photoSource: string } }).route.photoUrl, url);
+    assert.equal((set.body as { route: { photoUrl: string; photoSource: string } }).route.photoSource, "manual");
+    const bad = await route({
+      method: "PUT", path: "/api/gym/route", query: {}, headers: {},
+      body: { id, patch: { photoUrl: "javascript:alert(1)" } },
+    });
+    assert.equal(bad.status, 400);
+    const clear = await route({
+      method: "PUT", path: "/api/gym/route", query: {}, headers: {},
+      body: { id, patch: { photoUrl: null } },
+    });
+    assert.equal(clear.status, 200);
+    assert.equal((clear.body as { route: { photoUrl: string | null } }).route.photoUrl, null);
+  });
+
   it("attempt delete removes, renumbers and recomputes state", async () => {
     const id = await seedRouteId();
     const mk = (clientAttemptId: string, result: string) => route({

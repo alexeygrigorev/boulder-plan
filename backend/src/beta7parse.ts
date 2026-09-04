@@ -19,6 +19,7 @@ export interface ParsedBeta7Route {
   gradeRaw: string;
   styles: string[];
   setter: string | null;
+  photoUrl: string | null;
   sends: number | null;
   posts: number | null;
   ageText: string | null;
@@ -114,6 +115,12 @@ export function parseRoutePage(
 
   const ogUrl = firstGroup(/<meta property="og:url" content="([^"]+)"/, html);
   if (ogUrl && ogUrl !== canonicalUrl) warnings.push("og:url differs from QR canonical URL");
+
+  // Фото сектора со страницы трассы (не конкретной трассы — честно подписываем в UI).
+  const ogImageRaw = firstGroup(/<meta property="og:image" content="([^"]+)"/, html);
+  const ogImage = ogImageRaw ? unescape(ogImageRaw) : null;
+  const photoUrl = ogImage && /^https:\/\/[^"'\s<>]{1,2000}$/.test(ogImage) ? ogImage : null;
+  fieldConfidence.photoUrl = photoUrl ? 0.9 : 0;
 
   const title = cleanText(firstGroup(/<title>(.*?)<\/title>/s, html));
   const description = cleanText(firstGroup(/<meta name="description" content="(.*?)"\s*\/?>/s, html));
@@ -222,6 +229,7 @@ export function parseRoutePage(
       gradeRaw,
       styles,
       setter,
+      photoUrl,
       sends: Number.isFinite(sends) ? sends : null,
       posts: Number.isFinite(posts) ? posts : null,
       ageText,
