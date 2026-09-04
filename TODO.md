@@ -17,7 +17,8 @@
 - [ ] GitHub-style heatmap: пройденные дни со звёздочкой, «дырки» видны
 - [ ] Данные из Excel: 4 статуса (`Готово/Перенесено/Пропущено`), итог недели (просадка хвата, плечо/пальцы/колено, энергия), журнал трасс, дашборд-панель
 - [ ] Скриншоты + полировка внешнего вида
-- [ ] Push в remote (пока нет remote — нужен URL репозитория)
+- [x] Push в remote (https://github.com/alexeygrigorev/boulder-plan)
+- [x] CI/CD: push в main → тесты → деплой на boulder.dtcdev.click (OIDC-роль `boulder-plan-github-actions-deploy`, `aws-infra/sandbox/boulder-plan/`)
 
 ## Ждёт от тебя
 - [ ] Даты отпусков → придумаем режим на отпуск, чтобы не теряться
