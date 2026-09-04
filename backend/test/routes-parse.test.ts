@@ -24,8 +24,20 @@ describe("beta7 public-page parser (fixtures, no API)", () => {
     for (const s of ["footwork", "complexity", "technic", "balance"]) {
       assert.ok(p.data.styles.includes(s), `style ${s}`);
     }
+    assert.ok(p.data.styles.every((s) => !s.includes(".")), "no raw i18n keys in styles");
     assert.ok((p.data.sends ?? 0) > 0);
     assert.ok((p.fieldConfidence.gradeRaw ?? 0) >= 0.9);
+  });
+
+  it("untranslated i18n style keys map to the style dictionary", () => {
+    const html = `<html><head><title>t 6A/BLAU • BETA7</title>
+      <meta name="description" content="tension boulder with t 6A/BLAU from @s at @g (Sec) • 3 sends, 0 posts"></head>
+      <body><h1><span class="style" title="route.styles.tension">x</span>
+      <span class="style" title="route.styles.whatever">y</span></h1></body></html>`;
+    const p = parseRoutePage(html, "x".repeat(16), "https://beta7.app/route/" + "x".repeat(16));
+    assert.ok(p.data.styles.includes("tension"));
+    assert.ok(!p.data.styles.some((s) => s.includes(".")));
+    assert.ok(p.unknownTokens.some((t) => t.includes("whatever")));
   });
 
   it("route page without setter keeps card alive", () => {

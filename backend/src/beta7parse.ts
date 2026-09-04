@@ -46,6 +46,24 @@ export function styleFromEmoji(emoji: string): string | null {
   return STYLE_EMOJI[base] ?? STYLE_EMOJI[emoji] ?? null;
 }
 
+// Словарь стилей из пакета (route_styles seed).
+const KNOWN_STYLES = new Set([
+  "arete", "balance", "footwork", "compression", "coordination", "corner",
+  "dyno", "endurance", "fun", "mantle", "power", "strength", "technic",
+  "complexity", "tension", "flexibility", "mentality",
+]);
+
+function normalizeStyleToken(raw: string, unknownTokens: string[]): string | null {
+  let t = raw.trim().toLowerCase();
+  if (!t) return null;
+  // Непереведённые i18n-ключи вида route.styles.tension → последний сегмент.
+  if (t.includes(".")) t = (t.split(".").pop() ?? "").trim();
+  if (t === "technique") t = "technic";
+  if (KNOWN_STYLES.has(t)) return t;
+  if (!unknownTokens.includes(raw.trim())) unknownTokens.push(raw.trim());
+  return null;
+}
+
 function unescapeOnce(s: string): string {
   return s
     .replace(/&#x2F;/gi, "/")
@@ -134,19 +152,20 @@ export function parseRoutePage(
 
   // Стили: слова из description + title-атрибуты в h1.
   const styles: string[] = [];
+  const addStyle = (raw: string): void => {
+    const s = normalizeStyleToken(raw, unknownTokens);
+    if (s && !styles.includes(s)) styles.push(s);
+  };
   if (description) {
     const lead = /^([\sa-z]+?)\s+boulder/u.exec(description)?.[1] ?? "";
-    for (const w of lead.split(/\s+/)) {
-      const t = w.trim().toLowerCase();
-      if (t && !styles.includes(t)) styles.push(t);
-    }
+    for (const w of lead.split(/\s+/)) addStyle(w);
   }
   for (const m of h1.matchAll(/<span class="style[^"]*"[^>]*title="([^"]*)"/g)) {
-    const t = (m[1] ?? "").trim().toLowerCase().replace(/^technique$/, "technic");
-    if (t && !styles.includes(t)) styles.push(t);
+    addStyle(m[1] ?? "");
   }
   fieldConfidence.styles = styles.length ? 0.85 : 0;
   if (!styles.length) warnings.push("styles not found");
+  if (unknownTokens.length) warnings.push(`unknown style tokens: ${unknownTokens.join(" ")}`);
 
   // Setter + gym + sector из description; cross-check по семантическим спанам.
   let setter: string | null = null;
