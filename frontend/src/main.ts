@@ -1,13 +1,13 @@
 import {
   api, auth, AuthError, todayIso, shiftDate,
   type PlanDay, type ActivityDay, type GlossaryTerm, type ResourceItem, type PlanWeekFull,
-  type DayMetrics,
+  type DayMetrics, type Gym, type RouteWithPersonal, type RouteCard, type QrResolveOut,
 } from "./api";
 import { md } from "./md";
 
 const app = document.getElementById("app")!;
 
-type Tab = "today" | "cal" | "prog" | "lib" | "safe";
+type Tab = "today" | "cal" | "prog" | "lib" | "safe" | "routes";
 type LibSub = "ex" | "dict" | "vids" | "shop";
 
 let tab: Tab = "today";
@@ -34,6 +34,21 @@ let weekCache = new Map<string, PlanWeekFull>();
 let activityCache: { from: string; to: string; days: ActivityDay[] } | null = null;
 const activityByDate = new Map<string, ActivityDay>();
 let calMonth = todayIso().slice(0, 7);
+
+// Трассы (BETA7 scan-only + ручные): выбор зала, QR, карточка, попытки
+let gymsCache: Gym[] = [];
+let selGym = localStorage.getItem("bp:gym") || "gym_berta";
+let routesList: RouteWithPersonal[] = [];
+let catalogWarn: string | null = null;
+let openRouteId: string | null = null;
+const cardCache = new Map<string, RouteCard>();
+let qrText = "";
+let qrMsg = "";
+let failReason = "FOOT_SLIP";
+let scanning = false;
+let scanStream: MediaStream | null = null;
+let scanTimer: number | undefined;
+let recoCache: { exerciseId: string; candidates: { route: RouteWithPersonal; score: number; reasons: string[]; alternatives: { route: RouteWithPersonal; reason: string }[] }[]; relaxations: string[] }[] | null = null;
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -194,7 +209,7 @@ function goCal(): void {
 function tabsHtml(): string {
   const t = (id: Tab, label: string) =>
     `<button data-tab="${id}" class="${tab === id ? "active" : ""}">${label}</button>`;
-  return `<nav class="tabs">${t("today", "Сегодня")}${t("cal", "Календарь")}${t("prog", "Прогресс")}${t("lib", "Библиотека")}${t("safe", "Безопасность")}</nav>`;
+  return `<nav class="tabs">${t("today", "Сегодня")}${t("cal", "Календарь")}${t("routes", "Трассы")}${t("prog", "Прогресс")}${t("lib", "Библиотека")}${t("safe", "Безопасность")}</nav>`;
 }
 
 function renderLogin(error = ""): void {
@@ -238,6 +253,7 @@ function wireTabs(): void {
 function render(): void {
   if (tab === "today") renderDay();
   else if (tab === "cal") void renderCal();
+  else if (tab === "routes") void renderRoutes();
   else if (tab === "prog") void renderProg();
   else if (tab === "lib") void renderLib();
   else void renderSafe();
@@ -298,6 +314,8 @@ function renderDay(): void {
     ${d.cue ? `<div class="cue"><strong>Cue:</strong> ${esc(d.cue)}</div>` : ""}
     <div class="progress"><div style="width:${pct}%"></div></div>
     <div class="proglabel">${done}/${d.blocks.length} · ${pct}%</div>
+    <button class="listitem" id="gotoroutes"><div class="d">🧗 Трассы зала</div>
+    <div class="s">QR у стены, попытки, подбор под тренировку</div></button>
     <div id="blocks">${d.blocks.map(blockHtml).join("")}</div>
     <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
     ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
@@ -317,6 +335,10 @@ function renderDay(): void {
   wireTabs();
   wireBlocks();
   wireMeters();
+  (document.getElementById("gotoroutes") as HTMLButtonElement).onclick = () => {
+    tab = "routes";
+    void renderRoutes();
+  };
 
   // Материалы недели подгружаются отдельно, чтобы день открывался сразу
   if (d.week && d.week !== "prestart") {
@@ -573,6 +595,384 @@ function wireDayNavLite(): void {
   };
   const inp = document.getElementById("datebtn") as HTMLButtonElement | null;
   if (inp) inp.onclick = () => goCal();
+}
+
+// ---------- Трассы: зал, QR/scan-only, карточка, попытки, рекомендации ----------
+
+function newAttemptId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `att-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6)}`;
+  }
+}
+
+function routeTitle(r: RouteWithPersonal["route"]): string {
+  return r.name || r.holdDescription || (r.canonicalUrl ? "BETA7-трасса" : "Ручная трасса");
+}
+
+function statusRu(s: string): string {
+  return { DISCOVERED: "Увидел", WANT_TO_TRY: "Хочу", PLANNED: "В плане", PROJECTING: "Проект", SENT: "Сделал", FLASHED: "Флеш", SKIPPED: "Пропуск" }[s] ?? s;
+}
+
+async function renderRoutes(): Promise<void> {
+  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка трасс…</p>${tabsHtml()}`;
+  wireTabs();
+  wireDayNavLite();
+  try {
+    if (!gymsCache.length) gymsCache = (await api.gyms()).gyms;
+    if (!gymsCache.some((g) => g.id === selGym)) selGym = gymsCache[0]?.id ?? "gym_berta";
+    const res = await api.gymRoutes(selGym);
+    routesList = res.items;
+    catalogWarn = res.catalog.warning;
+  } catch (e) {
+    if (needLogin(e)) {
+      renderLogin();
+      return;
+    }
+    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API.</p>${tabsHtml()}`;
+    wireTabs();
+    return;
+  }
+  renderRoutesView();
+}
+
+function renderRoutesView(): void {
+  const gym = gymsCache.find((g) => g.id === selGym);
+  const canScan = typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector !== "undefined";
+  const card = openRouteId ? cardCache.get(openRouteId) : undefined;
+  app.innerHTML = `<header class="top">${navHtml()}</header>
+    <h1>Трассы</h1>${accountHtml()}
+    <div class="subchips">${gymsCache.map((g) =>
+      `<button class="subchip ${g.id === selGym ? "active" : ""}" data-gym="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>
+    ${catalogWarn ? `<div class="cue">${esc(catalogWarn)}</div>` : ""}
+    ${gym?.provider === "beta7" ? `<div class="meta"><span>QR у стартового зацепа → карточка. Каталог — после разрешения BETA7.</span></div>` : ""}
+    <h3>QR-код трассы</h3>
+    <input class="search" id="qrtext" placeholder="Вставь ссылку с QR (https://beta7.app/route/…)" value="${esc(qrText)}" inputmode="url" />
+    <div class="subchips">
+      <button class="subchip active" id="qrgo">Распознать</button>
+      ${canScan ? `<button class="subchip" id="qrscan">${scanning ? "Остановить камеру" : "Сканировать камерой"}</button>` : ""}
+    </div>
+    ${scanning ? `<video id="scanvid" playsinline muted style="width:100%;border-radius:12px;background:#000"></video>` : ""}
+    ${qrMsg ? `<div class="cue">${esc(qrMsg)}</div>` : ""}
+    ${card ? routeCardHtml(card) : ""}
+    <h3>Подобрать под тренировку</h3>
+    <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button></div>
+    <div id="recoout">${recoCache ? recoHtml(recoCache) : ""}</div>
+    <h3>Трассы зала (${routesList.length})</h3>
+    ${routesList.map((it) => {
+      const r = it.route;
+      const st = it.personalState;
+      return `<button class="listitem" data-route="${esc(r.id)}">
+        <div class="d">${esc(routeTitle(r))}${st?.sent ? " ✓" : ""}</div>
+        <div class="s">${esc([r.sector, r.grade.raw || "без грейда", r.styles.slice(0, 3).join(" · ")].filter(Boolean).join(" · "))}${st ? ` · ${esc(statusRu(st.status))} · попыток ${st.totalAttempts}` : ""}</div>
+      </button>`;
+    }).join("") || `<p class="meta">Пока пусто — отсканируй QR или добавь вручную ниже.</p>`}
+    <details class="section"><summary>Добавить вручную</summary>
+      <input class="search" id="m-sector" placeholder="Сектор" />
+      <input class="search" id="m-name" placeholder="Название / зацепы" />
+      <input class="search" id="m-grade" placeholder="Грейд, напр. 6C/LILA" />
+      <input class="search" id="m-styles" placeholder="Стили через запятую: footwork, balance" />
+      <button class="subchip active" id="m-add">Добавить в ${esc(gym?.name ?? "")}</button>
+    </details>
+    ${tabsHtml()}`;
+  wireTabs();
+  wireDayNavLite();
+  app.querySelectorAll<HTMLButtonElement>("[data-gym]").forEach((b) => {
+    b.onclick = () => {
+      selGym = b.dataset.gym!;
+      localStorage.setItem("bp:gym", selGym);
+      openRouteId = null;
+      recoCache = null;
+      void renderRoutes();
+    };
+  });
+  const qi = document.getElementById("qrtext") as HTMLInputElement;
+  qi.oninput = () => {
+    qrText = qi.value;
+  };
+  (document.getElementById("qrgo") as HTMLButtonElement).onclick = () => void doResolve();
+  const qs = document.getElementById("qrscan") as HTMLButtonElement | null;
+  if (qs) qs.onclick = () => void toggleScan();
+  if (scanning) void attachScanner();
+  app.querySelectorAll<HTMLButtonElement>("[data-route]").forEach((b) => {
+    b.onclick = () => void openCard(b.dataset.route!);
+  });
+  if (card) wireCard(card);
+  (document.getElementById("reco") as HTMLButtonElement).onclick = () => void doReco();
+  app.querySelectorAll<HTMLButtonElement>("[data-recoroute]").forEach((b) => {
+    b.onclick = () => void openCard(b.dataset.recoroute!);
+  });
+  (document.getElementById("m-add") as HTMLButtonElement).onclick = () => void doManualAdd();
+}
+
+function routeCardHtml(c: RouteCard): string {
+  const r = c.route;
+  const st = c.personalState;
+  const secs = st ? Math.floor(st.totalTimeSeconds / 60) : 0;
+  const stats: [string, string][] = [
+    ["WANT_TO_TRY", "Хочу"], ["PROJECTING", "Проект"], ["SENT", "Сделал"], ["FLASHED", "Флеш"], ["SKIPPED", "Пропуск"],
+  ];
+  return `<div class="acc">
+    <div class="d" style="font-weight:700">${esc(routeTitle(r))}</div>
+    <div class="s meta">${esc([r.gymName, r.sector, r.grade.raw || "грейд не указан"].filter(Boolean).join(" · "))}</div>
+    ${r.styles.length ? `<div class="terms">${r.styles.map((s) => `<span class="term">${esc(s)}</span>`).join("")}</div>` : ""}
+    ${r.setter ? `<div class="s meta">Постановщик: ${esc(r.setter)}</div>` : ""}
+    ${!r.sector || !r.grade.raw ? `<div class="cue">Деталей мало — дополни:
+      <input class="search" id="e-sector" placeholder="Сектор" value="${esc(r.sector ?? "")}" />
+      <input class="search" id="e-grade" placeholder="Грейд" value="${esc(r.grade.raw ?? "")}" />
+      <button class="subchip active" id="e-save">Сохранить</button></div>` : ""}
+    <div class="meta"><span>Сегодня: попыток ${c.attempts.length}</span><span>· всего ${st?.totalAttempts ?? 0}</span><span>· ~${secs} мин</span></div>
+    <div class="subchips">${stats.map(([v, l]) =>
+      `<button class="subchip ${st?.status === v ? "active" : ""}" data-st="${v}">${l}</button>`).join("")}</div>
+    <div class="subchips">
+      <button class="subchip active" data-att="FAILED">Не получилось</button>
+      <button class="subchip" data-att="SENT">Сделал</button>
+      <button class="subchip" data-att="FLASHED">Флеш</button>
+    </div>
+    <div class="meta"><span>Почему не получилось:</span>
+      <select id="failreason" class="subchip">
+        ${[["START", "Старт"], ["MOVE_UNCLEAR", "Не понял движение"], ["FOOT_SLIP", "Сорвались ноги"], ["HOLD_FAILURE", "Не удержал зацеп"], ["POWER", "Сила"], ["ENDURANCE", "Выносливость"], ["REACH", "Размах"], ["FEAR", "Страшно"], ["FATIGUE", "Устал"], ["PAIN_OR_DISCOMFORT", "Боль"], ["OTHER", "Другое"]].map(([v, l]) =>
+          `<option value="${v}" ${failReason === v ? "selected" : ""}>${l}</option>`).join("")}
+      </select>
+      <button class="subchip" id="tm-toggle">⏱ Старт/стоп</button>
+    </div>
+    ${c.attempts.length ? `<div class="s meta">История: ${c.attempts.slice(-5).reverse().map((a) =>
+      esc(`#${a.attemptNumber} ${a.result}${a.failureReason ? ` (${a.failureReason})` : ""}`)).join(" · ")}</div>` : ""}
+    ${r.canonicalUrl ? `<div class="s"><a href="${esc(r.canonicalUrl)}" target="_blank" rel="noopener">Открыть в BETA7</a></div>` : ""}
+  </div>`;
+}
+
+function wireCard(c: RouteCard): void {
+  app.querySelectorAll<HTMLButtonElement>("[data-st]").forEach((b) => {
+    b.onclick = () => void doState(b.dataset.st!);
+  });
+  app.querySelectorAll<HTMLButtonElement>("[data-att]").forEach((b) => {
+    b.onclick = () => void doAttempt(b.dataset.att!);
+  });
+  const fr = document.getElementById("failreason") as HTMLSelectElement | null;
+  if (fr) fr.onchange = () => {
+    failReason = fr.value;
+  };
+  const tm = document.getElementById("tm-toggle") as HTMLButtonElement | null;
+  if (tm) tm.onclick = () => void doTimer();
+  const es = document.getElementById("e-save") as HTMLButtonElement | null;
+  if (es) {
+    es.onclick = async () => {
+      try {
+        await api.enrichRoute(c.route.id, {
+          sector: (document.getElementById("e-sector") as HTMLInputElement).value,
+          gradeRaw: (document.getElementById("e-grade") as HTMLInputElement).value,
+        });
+        cardCache.delete(c.route.id);
+        await openCard(c.route.id);
+      } catch (e) {
+        qrMsg = e instanceof Error ? e.message : "Не сохранилось";
+        renderRoutesView();
+      }
+    };
+  }
+}
+
+async function openCard(id: string): Promise<void> {
+  try {
+    openRouteId = id;
+    cardCache.set(id, await api.routeCard(id));
+    qrMsg = "";
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Карточка не открылась";
+  }
+  renderRoutesView();
+}
+
+async function refreshCard(): Promise<void> {
+  if (!openRouteId) return;
+  try {
+    cardCache.set(openRouteId, await api.routeCard(openRouteId));
+    const res = await api.gymRoutes(selGym);
+    routesList = res.items;
+  } catch { /* покажем что есть */ }
+  renderRoutesView();
+}
+
+async function doResolve(): Promise<void> {
+  const payload = qrText.trim();
+  if (!payload) {
+    qrMsg = "Вставь ссылку с QR-кода.";
+    renderRoutesView();
+    return;
+  }
+  try {
+    // На сервер уходит только строковый payload (декодирование — локально).
+    const out: QrResolveOut = await api.resolveQr(payload, selGym);
+    if (out.route) {
+      openRouteId = out.route.id;
+      cardCache.delete(out.route.id);
+      try {
+        cardCache.set(out.route.id, await api.routeCard(out.route.id));
+      } catch { /* карточка из resolve */ }
+      const res = await api.gymRoutes(selGym);
+      routesList = res.items;
+    }
+    qrMsg = out.warnings.join(" ") || "Трасса распознана.";
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Не распозналось — добавь вручную ниже.";
+  }
+  renderRoutesView();
+}
+
+async function toggleScan(): Promise<void> {
+  if (scanning) {
+    stopScanner();
+    renderRoutesView();
+    return;
+  }
+  try {
+    await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then((s) => {
+      s.getTracks().forEach((t) => t.stop());
+    });
+  } catch {
+    qrMsg = "Нет доступа к камере — вставь ссылку вручную.";
+    renderRoutesView();
+    return;
+  }
+  scanning = true;
+  qrMsg = "Наведи камеру на QR у стартового зацепа.";
+  renderRoutesView();
+}
+
+function stopScanner(): void {
+  scanning = false;
+  if (scanTimer) window.clearInterval(scanTimer);
+  scanTimer = undefined;
+  if (scanStream) {
+    scanStream.getTracks().forEach((t) => t.stop());
+    scanStream = null;
+  }
+}
+
+async function attachScanner(): Promise<void> {
+  const BD = (window as unknown as { BarcodeDetector?: new () => { detect(v: HTMLVideoElement): Promise<{ rawValue: string }[]> } }).BarcodeDetector;
+  const video = document.getElementById("scanvid") as HTMLVideoElement | null;
+  if (!BD || !video) return;
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = scanStream;
+    await video.play();
+    const det = new BD();
+    let last = "";
+    let lastAt = 0;
+    scanTimer = window.setInterval(async () => {
+      try {
+        const found = await det.detect(video);
+        const val = found[0]?.rawValue ?? "";
+        if (val && (val !== last || Date.now() - lastAt > 3000)) {
+          last = val;
+          lastAt = Date.now();
+          try {
+            if (navigator.vibrate) navigator.vibrate(60);
+          } catch { /* noop */ }
+          qrText = val;
+          stopScanner();
+          await doResolve();
+        }
+      } catch { /* следующий кадр */ }
+    }, 500);
+  } catch {
+    scanning = false;
+    qrMsg = "Камера не запустилась — вставь ссылку вручную.";
+    renderRoutesView();
+  }
+}
+
+async function doState(status: string): Promise<void> {
+  if (!openRouteId) return;
+  try {
+    await api.setRouteState(openRouteId, status);
+    await refreshCard();
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Статус не сохранился";
+    renderRoutesView();
+  }
+}
+
+async function doAttempt(result: string): Promise<void> {
+  if (!openRouteId) return;
+  try {
+    await api.addAttempt({
+      routeId: openRouteId,
+      clientAttemptId: newAttemptId(),
+      result,
+      failureReason: result === "FAILED" ? failReason : null,
+      workoutDate: date,
+    });
+    qrMsg = result === "SENT" ? "Есть send! 🎉" : result === "FLASHED" ? "Флеш! 🔥" : "Попытка записана.";
+    await refreshCard();
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Попытка не записалась";
+    renderRoutesView();
+  }
+}
+
+async function doTimer(): Promise<void> {
+  if (!openRouteId) return;
+  try {
+    const card = cardCache.get(openRouteId);
+    const running = card?.timers.some((t) => t.status === "RUNNING");
+    if (running) await api.timerStop(openRouteId, date);
+    else await api.timerStart(openRouteId, date);
+    await refreshCard();
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Таймер не переключился";
+    renderRoutesView();
+  }
+}
+
+async function doManualAdd(): Promise<void> {
+  const v = (id: string): string => (document.getElementById(id) as HTMLInputElement).value.trim();
+  try {
+    const created = await api.createRoute({
+      gymId: selGym,
+      sector: v("m-sector"),
+      name: v("m-name"),
+      gradeRaw: v("m-grade"),
+      styles: v("m-styles").split(",").map((s) => s.trim()).filter(Boolean),
+    });
+    openRouteId = created.route.id;
+    cardCache.delete(created.route.id);
+    const res = await api.gymRoutes(selGym);
+    routesList = res.items;
+    qrMsg = "Трасса добавлена вручную.";
+    await refreshCard();
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Не добавилось";
+    renderRoutesView();
+  }
+}
+
+function recoHtml(list: NonNullable<typeof recoCache>): string {
+  return list.map((ex) => `<div class="res"><div class="d">${esc(ex.exerciseId)}</div>
+    ${ex.relaxations.length ? `<div class="s">Ослабили: ${esc(ex.relaxations.join("; "))}</div>` : ""}
+    ${ex.candidates.map((c) => `<div class="s">• <button class="term" data-recoroute="${esc(c.route.route.id)}">${esc(routeTitle(c.route.route))}</button>
+      ${esc(c.route.route.grade.raw || "")} — ${esc(c.reasons.join("; ") || "по общим правилам")}
+      ${c.alternatives.length ? `<br>Замена: ${esc(routeTitle(c.alternatives[0]!.route.route))}` : ""}</div>`).join("") ||
+    `<div class="s">Нет подходящих — иди к стене и сканируй QR.</div>`}
+  </div>`).join("");
+}
+
+async function doReco(): Promise<void> {
+  try {
+    const out = await api.recommend(selGym, [
+      { id: "Разминка", targetCount: 3, difficulty: { min: 3.5, max: 4.5 }, targetStyles: [], excludeSent: false, selectionPolicy: "warmup" },
+      { id: "Техника", targetCount: 4, difficulty: { min: 4.8, max: 5.7 }, targetStyles: ["footwork", "balance", "technic"], selectionPolicy: "skill_development" },
+      { id: "Проект", targetCount: 1, difficulty: { min: 6.0, max: 6.8 }, targetStyles: [], selectionPolicy: "project" },
+    ]);
+    recoCache = out.exercises;
+    qrMsg = "";
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Не подобралось";
+  }
+  renderRoutesView();
 }
 
 // ---------- Прогресс: heatmap как на Гитхабе ----------
@@ -836,7 +1236,7 @@ async function boot(): Promise<void> {
   const q = params.get("date");
   if (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) date = q;
   const t = params.get("tab");
-  if (t === "cal" || t === "prog" || t === "lib" || t === "safe") tab = t;
+  if (t === "cal" || t === "prog" || t === "lib" || t === "safe" || t === "routes") tab = t;
   const mo = params.get("month");
   if (mo && /^\d{4}-\d{2}$/.test(mo)) calMonth = mo;
   else calMonth = date.slice(0, 7);

@@ -109,6 +109,24 @@ async function put<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function post<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) {
+    let msg = `${url}: ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string; message?: string };
+      msg = j.message ?? j.error ?? msg;
+    } catch { /* keep status */ }
+    throw new Error(msg);
+  }
+  return (await res.json()) as T;
+}
+
 export class AuthError extends Error {
   constructor() {
     super("unauthorized");
@@ -145,6 +163,90 @@ interface OidcPending {
   returnTo: string;
 }
 
+export interface Gym {
+  id: string;
+  name: string;
+  city: string;
+  provider: string | null;
+  integrationMode: string;
+  catalogStatus?: string;
+  catalogUpdatedAt?: string | null;
+  routeCount?: number;
+}
+
+export interface RouteGrade {
+  raw: string;
+  technical: string | null;
+  gymColor: string | null;
+  normalizedDifficulty: number | null;
+}
+
+export interface RouteItem {
+  id: string;
+  provider: string;
+  externalId: string;
+  canonicalUrl: string;
+  gymId: string;
+  gymName: string;
+  sector: string | null;
+  name: string | null;
+  holdDescription: string | null;
+  grade: RouteGrade;
+  styles: string[];
+  setter: string | null;
+  availability: string;
+}
+
+export interface RoutePersonalState {
+  routeId: string;
+  status: string;
+  priority: number;
+  notes: string | null;
+  totalAttempts: number;
+  totalTimeSeconds: number;
+  sent: boolean;
+  lastAttemptAt: string | null;
+}
+
+export interface RouteWithPersonal {
+  route: RouteItem;
+  personalState: RoutePersonalState | null;
+}
+
+export interface QrResolveOut {
+  matched: boolean;
+  provider: string | null;
+  route: RouteItem | null;
+  personalState: RoutePersonalState | null;
+  fieldConfidence: Record<string, number>;
+  warnings: string[];
+  manualFallback: { allowed: boolean; suggestedFields: string[] };
+  code?: string;
+  message?: string;
+}
+
+export interface RouteAttempt {
+  id: string;
+  attemptNumber: number;
+  recordedAt: string;
+  result: string;
+  failureReason: string | null;
+}
+
+export interface RouteCard {
+  route: RouteItem;
+  personalState: RoutePersonalState | null;
+  attempts: RouteAttempt[];
+  timers: { status: string; accumulatedSeconds: number }[];
+}
+
+export interface RecommendationCandidate {
+  route: RouteWithPersonal;
+  score: number;
+  reasons: string[];
+  alternatives: { route: RouteWithPersonal; reason: string }[];
+}
+
 export const api = {
   days: () => get<{ period: { from: string; to: string }; days: DaySummary[] }>("/api/days"),
   plan: (date: string) => get<PlanDay>(`/api/plan?date=${date}`),
@@ -161,6 +263,31 @@ export const api = {
   activity: (from: string, to: string) =>
     get<{ from: string; to: string; days: ActivityDay[] }>(`/api/activity?from=${from}&to=${to}`),
   me: () => get<{ enabled: boolean; email: string | null }>("/api/auth/me"),
+  gyms: () => get<{ gyms: Gym[] }>("/api/gyms"),
+  gymRoutes: (gymId: string) =>
+    get<{ items: RouteWithPersonal[]; catalog: { status: string; warning: string | null } }>(
+      `/api/gym/routes?gymId=${encodeURIComponent(gymId)}`,
+    ),
+  resolveQr: (payload: string, selectedGymId: string | null) =>
+    post<QrResolveOut>("/api/qr/resolve", { payload, selectedGymId }),
+  createRoute: (body: Record<string, unknown>) =>
+    post<{ route: RouteItem }>("/api/gym/routes", body),
+  enrichRoute: (id: string, patch: Record<string, unknown>) =>
+    put<{ route: RouteItem }>(`/api/gym/route`, { id, patch }),
+  routeCard: (id: string) => get<RouteCard>(`/api/route?id=${encodeURIComponent(id)}`),
+  setRouteState: (routeId: string, status: string) =>
+    put<RoutePersonalState>(`/api/route/state`, { routeId, status }),
+  addAttempt: (body: Record<string, unknown>) =>
+    post<RouteAttempt>("/api/route/attempts", body),
+  timerStart: (routeId: string, workoutDate: string) =>
+    post<{ status: string; accumulatedSeconds: number }>("/api/route/timer/start", { routeId, workoutDate }),
+  timerStop: (routeId: string, workoutDate: string) =>
+    post<{ status: string; accumulatedSeconds: number }>("/api/route/timer/stop", { routeId, workoutDate }),
+  recommend: (gymId: string, exercises: Record<string, unknown>[]) =>
+    post<{ exercises: { exerciseId: string; candidates: RecommendationCandidate[]; relaxations: string[] }[] }>(
+      "/api/recommendations",
+      { gymId, exercises },
+    ),
 };
 
 export const auth = {
