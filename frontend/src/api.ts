@@ -268,6 +268,11 @@ export const api = {
     get<{ items: RouteWithPersonal[]; catalog: { status: string; warning: string | null } }>(
       `/api/gym/routes?gymId=${encodeURIComponent(gymId)}`,
     ),
+  syncGym: (gymId: string) =>
+    post<{ discovered: number; updated: number; totalSeen: number; warnings: string[] }>(
+      "/api/gym/sync",
+      { gymId },
+    ),
   resolveQr: (payload: string, selectedGymId: string | null) =>
     post<QrResolveOut>("/api/qr/resolve", { payload, selectedGymId }),
   createRoute: (body: Record<string, unknown>) =>

@@ -657,7 +657,8 @@ function renderRoutesView(): void {
     ${qrMsg ? `<div class="cue">${esc(qrMsg)}</div>` : ""}
     ${card ? routeCardHtml(card) : ""}
     <h3>Подобрать под тренировку</h3>
-    <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button></div>
+    <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button>
+    <button class="subchip" id="sync">Обновить каталог</button></div>
     <div id="recoout">${recoCache ? recoHtml(recoCache) : ""}</div>
     <h3>Трассы зала (${routesList.length})</h3>
     ${routesList.map((it) => {
@@ -700,6 +701,7 @@ function renderRoutesView(): void {
   });
   if (card) wireCard(card);
   (document.getElementById("reco") as HTMLButtonElement).onclick = () => void doReco();
+  (document.getElementById("sync") as HTMLButtonElement).onclick = () => void doSync();
   app.querySelectorAll<HTMLButtonElement>("[data-recoroute]").forEach((b) => {
     b.onclick = () => void openCard(b.dataset.recoroute!);
   });
@@ -948,6 +950,21 @@ async function doManualAdd(): Promise<void> {
     qrMsg = e instanceof Error ? e.message : "Не добавилось";
     renderRoutesView();
   }
+}
+
+async function doSync(): Promise<void> {
+  qrMsg = "Качаю свежие трассы с сайта…";
+  renderRoutesView();
+  try {
+    const run = await api.syncGym(selGym);
+    const res = await api.gymRoutes(selGym);
+    routesList = res.items;
+    catalogWarn = res.catalog.warning;
+    qrMsg = `Готово: новых ${run.discovered}, обновлено ${run.updated}. Каталог частичный — дальше каталог растёт от твоих сканов.`;
+  } catch (e) {
+    qrMsg = e instanceof Error ? e.message : "Не обновилось";
+  }
+  renderRoutesView();
 }
 
 function recoHtml(list: NonNullable<typeof recoCache>): string {
