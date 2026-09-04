@@ -890,7 +890,9 @@ async function attachScanner(): Promise<void> {
 async function doState(status: string): Promise<void> {
   if (!openRouteId) return;
   try {
-    await api.setRouteState(openRouteId, status);
+    // Повторный клик по активному статусу снимает его (назад в «Увидел»).
+    const cur = cardCache.get(openRouteId)?.personalState?.status;
+    await api.setRouteState(openRouteId, cur === status ? "DISCOVERED" : status);
     await refreshCard();
   } catch (e) {
     qrMsg = e instanceof Error ? e.message : "Статус не сохранился";
