@@ -43,7 +43,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           "access-control-allow-origin": "*",
-          "access-control-allow-methods": "GET,PUT,OPTIONS",
+          "access-control-allow-methods": "GET,PUT,POST,DELETE,OPTIONS",
           "access-control-allow-headers": "content-type",
         });
         res.end();

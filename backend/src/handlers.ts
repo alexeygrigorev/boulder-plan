@@ -8,7 +8,7 @@ import { loadConfig, sharedAuthPublicConfig, type AppConfig } from "./config.ts"
 import { bearerEmail, issueSessionToken } from "./jwt.ts";
 import { exchangeCognitoCode } from "./cognito.ts";
 import type { ProgressEntry } from "./types.ts";
-import { loadRoutesDoc, saveRoutesDoc, recordAttempt, setRouteStatus, startTimer, stopTimer, findRouteById } from "./routeStore.ts";
+import { loadRoutesDoc, saveRoutesDoc, recordAttempt, deleteAttempt, setRouteStatus, startTimer, stopTimer, findRouteById } from "./routeStore.ts";
 import { FAILURE_REASONS, ROUTE_STATUSES } from "./routeTypes.ts";
 import { createManualRoute, enrichRoute, isLiveRoutesEnabled, listGymRoutes, resolveQrLive } from "./routeApi.ts";
 import { checkSyncRateLimit, syncGymCatalogFromHtml } from "./catalogSync.ts";
@@ -372,6 +372,14 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
     if (typeof query.routeId !== "string" || !query.routeId) return json({ error: "routeId required" }, 400);
     const doc = await loadRoutesDoc();
     return json({ items: doc.attempts.filter((a) => a.routeId === query.routeId) });
+  }
+  if (method === "DELETE" && path === "/api/route/attempts") {
+    if (typeof query.id !== "string" || !query.id) return json({ error: "id required" }, 400);
+    const doc = await loadRoutesDoc();
+    const gone = deleteAttempt(doc, query.id);
+    if (!gone) return json({ error: "unknown attempt" }, 404);
+    await saveRoutesDoc(doc);
+    return json({ deleted: query.id, routeId: gone.routeId });
   }
   if (method === "POST" && path === "/api/route/timer/start") {
     const b = (req.body ?? {}) as Record<string, unknown>;

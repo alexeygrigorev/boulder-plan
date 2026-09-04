@@ -128,6 +128,13 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function del<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "DELETE", headers: { ...authHeaders() } });
+  if (res.status === 401) throw new AuthError();
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return (await res.json()) as T;
+}
+
 export class AuthError extends Error {
   constructor() {
     super("unauthorized");
@@ -285,6 +292,8 @@ export const api = {
     put<RoutePersonalState>(`/api/route/state`, { routeId, status }),
   addAttempt: (body: Record<string, unknown>) =>
     post<RouteAttempt>("/api/route/attempts", body),
+  deleteAttempt: (id: string) =>
+    del<{ deleted: string; routeId: string }>(`/api/route/attempts?id=${encodeURIComponent(id)}`),
   timerStart: (routeId: string, workoutDate: string) =>
     post<{ status: string; accumulatedSeconds: number }>("/api/route/timer/start", { routeId, workoutDate }),
   timerStop: (routeId: string, workoutDate: string) =>

@@ -233,6 +233,31 @@ export function timerKey(workoutDate: string, routeId: string): string {
   return `${workoutDate}::${routeId}`;
 }
 
+// Удаление случайно записанной попытки: убираем, перенумеровываем
+// оставшиеся по времени, пересчитываем производный стейт.
+// Ручной статус не трогаем, кроме зависшего SEND без сендов.
+export function deleteAttempt(d: RoutesDoc, attemptId: string): { routeId: string } | null {
+  const i = d.attempts.findIndex((a) => a.id === attemptId);
+  if (i < 0) return null;
+  const [gone] = d.attempts.splice(i, 1);
+  const rest = d.attempts
+    .filter((a) => a.routeId === gone.routeId)
+    .sort((a, b) => (a.recordedAt < b.recordedAt ? -1 : a.recordedAt > b.recordedAt ? 1 : 0));
+  rest.forEach((a, n) => {
+    a.attemptNumber = n + 1;
+  });
+  const st = d.states[gone.routeId] ?? defaultState(gone.routeId);
+  st.totalAttempts = rest.length;
+  st.firstAttemptAt = rest[0]?.recordedAt ?? null;
+  st.lastAttemptAt = rest.length ? rest[rest.length - 1]!.recordedAt : null;
+  const sents = rest.filter((a) => a.result === "SENT" || a.result === "FLASHED");
+  st.sent = sents.length > 0;
+  st.sentAt = sents.length ? sents[0]!.recordedAt : null;
+  if (!st.sent && (st.status === "SENT" || st.status === "FLASHED")) st.status = "PROJECTING";
+  d.states[gone.routeId] = st;
+  return { routeId: gone.routeId };
+}
+
 export function startTimer(d: RoutesDoc, workoutDate: string, routeId: string, now: string): RouteTimer {
   const key = timerKey(workoutDate, routeId);
   const existing = d.timers[key];

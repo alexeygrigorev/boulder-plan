@@ -89,4 +89,35 @@ describe("route state + attempts + timers", () => {
     });
     assert.equal(res.status, 404);
   });
+
+  it("attempt delete removes, renumbers and recomputes state", async () => {
+    const id = await seedRouteId();
+    const mk = (clientAttemptId: string, result: string) => route({
+      method: "POST", path: "/api/route/attempts", query: {}, headers: {},
+      body: { routeId: id, clientAttemptId, result, workoutDate: "2026-09-08" },
+    });
+    const f1 = await mk("del-1", "FAILED");
+    assert.equal(f1.status, 201);
+    const s2 = await mk("del-2", "SENT");
+    assert.equal((s2.body as { attemptNumber: number }).attemptNumber, 2);
+    const del = await route({
+      method: "DELETE", path: "/api/route/attempts",
+      query: { id: (s2.body as { id: string }).id }, headers: {},
+    });
+    assert.equal(del.status, 200);
+    const card = await route({ method: "GET", path: "/api/route", query: { id }, headers: {} });
+    const body = card.body as {
+      attempts: { attemptNumber: number }[];
+      personalState: { totalAttempts: number; sent: boolean; status: string };
+    };
+    assert.equal(body.attempts.length, 1);
+    assert.equal(body.attempts[0]?.attemptNumber, 1);
+    assert.equal(body.personalState.totalAttempts, 1);
+    assert.equal(body.personalState.sent, false);
+    assert.equal(body.personalState.status, "PROJECTING");
+    const missing = await route({
+      method: "DELETE", path: "/api/route/attempts", query: { id: "nope" }, headers: {},
+    });
+    assert.equal(missing.status, 404);
+  });
 });
