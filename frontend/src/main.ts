@@ -1,7 +1,7 @@
 import {
   api, auth, AuthError, todayIso, shiftDate,
   type PlanDay, type ActivityDay, type GlossaryTerm, type ResourceItem, type PlanWeekFull,
-  type DayMetrics, type Gym, type RouteWithPersonal, type RouteCard, type QrResolveOut,
+  type DayMetrics, type Gym, type RouteWithPersonal, type RouteCard, type RouteAttempt, type QrResolveOut,
 } from "./api";
 import { md } from "./md";
 
@@ -615,6 +615,49 @@ function statusRu(s: string): string {
   return { DISCOVERED: "Увидел", WANT_TO_TRY: "Хочу", PLANNED: "В плане", PROJECTING: "Проект", SENT: "Сделал", FLASHED: "Флеш", SKIPPED: "Пропуск" }[s] ?? s;
 }
 
+const ATT_RESULT_RU: Record<string, string> = {
+  FAILED: "Не вышло", SENT: "Сделал", FLASHED: "Флеш", ABORTED: "Прервал", SKIPPED: "Пропустил",
+};
+
+const FAIL_REASONS_RU: [string, string][] = [
+  ["START", "Старт"], ["MOVE_UNCLEAR", "Не понял движение"], ["FOOT_SLIP", "Сорвались ноги"],
+  ["HOLD_FAILURE", "Не удержал зацеп"], ["POWER", "Сила"], ["ENDURANCE", "Выносливость"],
+  ["REACH", "Размах"], ["FEAR", "Страшно"], ["FATIGUE", "Устал"],
+  ["PAIN_OR_DISCOMFORT", "Боль"], ["OTHER", "Другое"],
+];
+const FAIL_RU: Record<string, string> = Object.fromEntries(FAIL_REASONS_RU);
+
+let armedDelAtt: string | null = null;
+let armedDelTimer: number | undefined;
+
+// История попыток: все, по сессиям (датам). Дата кликабельна — прыжок в день,
+// у каждой попытки время и × (в два тапа) на случайный тап.
+function attemptsHtml(list: RouteAttempt[]): string {
+  if (!list.length) return `<div class="s meta">Попыток пока нет.</div>`;
+  const groups = new Map<string, RouteAttempt[]>();
+  const sorted = [...list].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+  for (const a of sorted) {
+    const k = a.workoutDate ?? "";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(a);
+  }
+  return [...groups.entries()].map(([d, items]) => `
+    <div class="sess">
+      ${d
+        ? `<button class="sessdate" data-godate="${d}">Сессия · ${fmtDateRu(d)} · ${items.length}</button>`
+        : `<span class="sessdate dim">Без даты · ${items.length}</span>`}
+      ${items.map((a) => `
+        <div class="att">
+          <span class="attnum">#${a.attemptNumber}</span>
+          <span class="attres">${esc(ATT_RESULT_RU[a.result] ?? a.result)}</span>
+          ${a.failureReason ? `<span class="attfail">${esc(FAIL_RU[a.failureReason] ?? a.failureReason)}</span>` : ""}
+          <span class="atttime">${esc(a.recordedAt.slice(11, 16))}</span>
+          <button class="attx${armedDelAtt === a.id ? " armed" : ""}" data-delatt="${a.id}" aria-label="Удалить попытку">${
+            armedDelAtt === a.id ? "Убрать?" : "×"}</button>
+        </div>`).join("")}
+    </div>`).join("");
+}
+
 async function renderRoutes(): Promise<void> {
   app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка трасс…</p>${tabsHtml()}`;
   wireTabs();
@@ -724,7 +767,7 @@ function routeCardHtml(c: RouteCard): string {
       <input class="search" id="e-sector" placeholder="Сектор" value="${esc(r.sector ?? "")}" />
       <input class="search" id="e-grade" placeholder="Грейд" value="${esc(r.grade.raw ?? "")}" />
       <button class="subchip active" id="e-save">Сохранить</button></div>` : ""}
-    <div class="meta"><span>Сегодня: попыток ${c.attempts.length}</span><span>· всего ${st?.totalAttempts ?? 0}</span><span>· ~${secs} мин</span></div>
+    <div class="meta"><span>Попыток: всего ${st?.totalAttempts ?? c.attempts.length}</span><span>· ~${secs} мин</span></div>
     <div class="subchips">${stats.map(([v, l]) =>
       `<button class="subchip ${st?.status === v ? "active" : ""}" data-st="${v}">${l}</button>`).join("")}</div>
     <div class="subchips">
@@ -734,13 +777,13 @@ function routeCardHtml(c: RouteCard): string {
     </div>
     <div class="meta"><span>Почему не получилось:</span>
       <select id="failreason" class="subchip">
-        ${[["START", "Старт"], ["MOVE_UNCLEAR", "Не понял движение"], ["FOOT_SLIP", "Сорвались ноги"], ["HOLD_FAILURE", "Не удержал зацеп"], ["POWER", "Сила"], ["ENDURANCE", "Выносливость"], ["REACH", "Размах"], ["FEAR", "Страшно"], ["FATIGUE", "Устал"], ["PAIN_OR_DISCOMFORT", "Боль"], ["OTHER", "Другое"]].map(([v, l]) =>
+        ${FAIL_REASONS_RU.map(([v, l]) =>
           `<option value="${v}" ${failReason === v ? "selected" : ""}>${l}</option>`).join("")}
       </select>
       <button class="subchip" id="tm-toggle">⏱ Старт/стоп</button>
     </div>
-    ${c.attempts.length ? `<div class="s meta">История: ${c.attempts.slice(-5).reverse().map((a) =>
-      esc(`#${a.attemptNumber} ${a.result}${a.failureReason ? ` (${a.failureReason})` : ""}`)).join(" · ")}</div>` : ""}
+    <h3>Попытки</h3>
+    ${attemptsHtml(c.attempts)}
     ${r.canonicalUrl ? `<div class="s"><a href="${esc(r.canonicalUrl)}" target="_blank" rel="noopener">Открыть в BETA7</a></div>` : ""}
   </div>`;
 }
@@ -751,6 +794,43 @@ function wireCard(c: RouteCard): void {
   });
   app.querySelectorAll<HTMLButtonElement>("[data-att]").forEach((b) => {
     b.onclick = () => void doAttempt(b.dataset.att!);
+  });
+  app.querySelectorAll<HTMLButtonElement>("[data-delatt]").forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.delatt!;
+      if (armedDelAtt !== id) {
+        // Первый тап — взвести, второй в течение 3 сек — удалить.
+        armedDelAtt = id;
+        window.clearTimeout(armedDelTimer);
+        armedDelTimer = window.setTimeout(() => {
+          armedDelAtt = null;
+          renderRoutesView();
+        }, 3000);
+        renderRoutesView();
+        return;
+      }
+      window.clearTimeout(armedDelTimer);
+      armedDelAtt = null;
+      void (async () => {
+        try {
+          await api.deleteAttempt(id);
+          qrMsg = "Попытка удалена.";
+        } catch {
+          qrMsg = "Не удалилось.";
+        }
+        await refreshCard();
+      })();
+    };
+  });
+  app.querySelectorAll<HTMLButtonElement>("[data-godate]").forEach((b) => {
+    b.onclick = () => {
+      const d = b.dataset.godate!;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+      flushSave();
+      date = d;
+      tab = "today";
+      void loadDay();
+    };
   });
   const fr = document.getElementById("failreason") as HTMLSelectElement | null;
   if (fr) fr.onchange = () => {
