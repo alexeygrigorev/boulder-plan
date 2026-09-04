@@ -724,16 +724,34 @@ async function renderCal(): Promise<void> {
   app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка календаря…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
+  // Отметки прогресса — необязательны: сетка строится по плану из /api/days,
+  // раньше падение /api/activity убивало весь календарь.
+  let activityWarn = "";
   try {
     await ensureActivity();
+  } catch (e) {
+    if (needLogin(e)) {
+      renderLogin();
+      return;
+    }
+    activityWarn = apiErrorText(e);
+  }
+  try {
     if (!daysCache.length) daysCache = (await api.days()).days;
   } catch (e) {
     if (needLogin(e)) {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API.</p>${tabsHtml()}`;
+    const msg = apiErrorText(e);
+    app.innerHTML = `<header class="top">${navHtml()}</header>
+      <h1>Календарь</h1>
+      <p>Нет связи с API: ${esc(msg)}</p>
+      <button class="listitem" id="retry"><div class="d">Попробовать снова</div></button>
+      ${tabsHtml()}`;
     wireTabs();
+    wireDayNavLite();
+    (document.getElementById("retry") as HTMLButtonElement).onclick = () => void renderCal();
     return;
   }
   const [y, mo] = calMonth.split("-").map(Number);
@@ -764,6 +782,8 @@ async function renderCal(): Promise<void> {
   const weekLabel = weekId === "prestart" ? "Подготовка" : weekId.replace("week_", "").replace(/_/g, " ");
   app.innerHTML = `<header class="top">${navHtml()}</header>
     <h1>Календарь</h1>${accountHtml()}
+    ${activityWarn ? `<div class="cue">Отметки прогресса не загрузились (${esc(activityWarn)}) — сетка по плану, галочки подтянутся позже.
+      <div class="subchips"><button class="subchip" id="actretry">Обновить отметки</button></div></div>` : ""}
     <div class="monline">
       <button id="mprev" aria-label="Прошлый месяц">‹</button>
       <strong>${monthTitle(calMonth)}</strong>
@@ -798,8 +818,14 @@ async function renderCal(): Promise<void> {
     calMonth = shiftMonth(calMonth, 1);
     void renderCal();
   };
+  const actretry = document.getElementById("actretry") as HTMLButtonElement | null;
+  if (actretry) actretry.onclick = () => {
+    activityCache = null;
+    void renderCal();
+  };
   app.querySelectorAll<HTMLButtonElement>("[data-date]").forEach((b) => {
     b.onclick = () => {
+      flushSave();
       date = b.dataset.date!;
       tab = "today";
       void loadDay();
