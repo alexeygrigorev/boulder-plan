@@ -38,6 +38,7 @@ export interface DayProgress {
   note: string;
   metrics?: DayMetrics;
   notes?: Record<string, string>;
+  updatedAt?: string;
 }
 
 export interface DaySummary {

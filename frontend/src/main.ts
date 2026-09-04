@@ -112,14 +112,129 @@ function localKey(d: string): string {
   return `bp:${d}`;
 }
 
+interface LocalEntry {
+  checks: Record<string, boolean>;
+  note: string;
+  metrics?: DayMetrics;
+  blockNotes?: Record<string, string>;
+  updatedAt: string;
+  dirty: boolean;
+}
+
+function readBlockNotes(v: unknown): Record<string, string> {
+  if (typeof v !== "object" || v === null) return {};
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === "string" && val.trim()) out[k] = val;
+  }
+  return out;
+}
+
+function readLocal(d: string): LocalEntry | null {
+  try {
+    const raw = localStorage.getItem(localKey(d));
+    if (!raw) return null;
+    const j = JSON.parse(raw) as Partial<LocalEntry>;
+    if (typeof j !== "object" || j === null || typeof j.checks !== "object" || j.checks === null) return null;
+    return {
+      checks: j.checks as Record<string, boolean>,
+      note: typeof j.note === "string" ? j.note : "",
+      metrics: typeof j.metrics === "object" && j.metrics !== null ? (j.metrics as DayMetrics) : {},
+      blockNotes: readBlockNotes((j as { blockNotes?: unknown }).blockNotes),
+      updatedAt: typeof j.updatedAt === "string" ? j.updatedAt : "",
+      dirty: j.dirty === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeLocal(d: string, e: { checks: Record<string, boolean>; note: string; metrics?: DayMetrics; blockNotes?: Record<string, string>; updatedAt: string }, dirty: boolean): void {
+  try {
+    localStorage.setItem(localKey(d), JSON.stringify({ ...e, dirty }));
+  } catch {
+    /* переполнено — серверная копия остаётся */
+  }
+}
+
+type SaveState = "saved" | "saving" | "offline";
+let saveState: SaveState = "saved";
+let pendingSnap: { date: string; checks: Record<string, boolean>; note: string; metrics: DayMetrics; blockNotes: Record<string, string>; updatedAt: string } | null = null;
+
+function paintSaveState(): void {
+  const el = document.getElementById("savestate");
+  if (!el) return;
+  el.textContent =
+    saveState === "saving" ? "Сохраняю…" :
+    saveState === "offline" ? "Нет связи — сохранено на этом устройстве, отправлю позже." :
+    "Сохранено ✓";
+}
+
+function apiErrorText(e: unknown): string {
+  if (e instanceof AuthError) return "нужен вход";
+  if (e instanceof Error && e.message) return e.message;
+  return String(e);
+}
+
+// Сохранение со снапшотом: раньше отложенный PUT брал глобальную `date`
+// на момент срабатывания таймера — правка могла улететь в другой день.
 function scheduleSave(): void {
-  localStorage.setItem(localKey(date), JSON.stringify({ checks, note, metrics }));
+  const snap = {
+    date,
+    checks: { ...checks },
+    note,
+    metrics: { ...metrics },
+    blockNotes: { ...blockNotes },
+    updatedAt: new Date().toISOString(),
+  };
+  pendingSnap = snap;
+  writeLocal(snap.date, snap, true);
+  saveState = "saving";
+  paintSaveState();
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(() => {
-    api.saveProgress(date, checks, note, metrics).catch(() => {
-      /* офлайн — останется в localStorage */
-    });
-  }, 600);
+  saveTimer = window.setTimeout(() => void doSave(snap), 600);
+}
+
+async function doSave(snap: { date: string; checks: Record<string, boolean>; note: string; metrics: DayMetrics; blockNotes: Record<string, string>; updatedAt: string }): Promise<void> {
+  try {
+    const saved = await api.saveProgress(snap.date, snap.checks, snap.note, snap.metrics, snap.blockNotes);
+    const cur = readLocal(snap.date);
+    // Гасим dirty только если пользователь ничего не правил поверх снапшота.
+    if (cur && cur.updatedAt === snap.updatedAt) {
+      writeLocal(snap.date, { ...cur, updatedAt: saved.updatedAt ?? cur.updatedAt }, false);
+    }
+    activityCache = null; // календарь/прогресс пересчитаются при следующем открытии
+    if (pendingSnap?.updatedAt === snap.updatedAt) pendingSnap = null;
+    if (saveState === "saving" && !pendingSnap) {
+      saveState = "saved";
+      paintSaveState();
+    }
+  } catch (e) {
+    // 401 и прочие разберёт следующий foreground-запрос (покажет вход);
+    // фоновый сейв не должен выкидывать на логин посреди набора заметки.
+    saveState = "offline";
+    paintSaveState();
+  }
+}
+
+// Отправить pending-сейв сейчас (перед сменой дня/вкладки, скрытием страницы).
+function flushSave(): void {
+  if (saveTimer !== undefined) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+  if (pendingSnap) {
+    const snap = pendingSnap;
+    pendingSnap = null;
+    void doSave(snap);
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => flushSave());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushSave();
+  });
 }
 
 async function ensureActivity(): Promise<void> {
@@ -160,27 +275,42 @@ async function loadDay(): Promise<void> {
   }
   try {
     const p = await api.progress(date);
-    checks = p.checks ?? {};
-    note = p.note ?? "";
-    metrics = p.metrics ?? {};
-    localStorage.setItem(localKey(date), JSON.stringify({ checks, note, metrics }));
-  } catch {
-    try {
-      const raw = localStorage.getItem(localKey(date));
-      if (raw) {
-        const j = JSON.parse(raw) as { checks: Record<string, boolean>; note: string; metrics?: DayMetrics };
-        checks = j.checks ?? {};
-        note = j.note ?? "";
-        metrics = j.metrics ?? {};
-      } else {
-        checks = {};
-        note = "";
-        metrics = {};
+    const local = readLocal(date);
+    // Не затираем локальную правку, которая ещё не долетела до сервера:
+    // раньше свежий ответ сервера молча убивал заметку/метрики из localStorage.
+    if (local?.dirty && (!p.updatedAt || local.updatedAt >= p.updatedAt)) {
+      checks = local.checks;
+      note = local.note;
+      metrics = local.metrics ?? {};
+      blockNotes = local.blockNotes ?? {};
+      saveState = "offline";
+      pendingSnap = { date, checks: { ...checks }, note, metrics: { ...metrics }, blockNotes: { ...blockNotes }, updatedAt: local.updatedAt };
+      void doSave(pendingSnap);
+    } else {
+      checks = p.checks ?? {};
+      note = p.note ?? "";
+      metrics = p.metrics ?? {};
+      blockNotes = readBlockNotes(p.notes);
+      writeLocal(date, { checks, note, metrics, blockNotes, updatedAt: p.updatedAt ?? "" }, false);
+      if (!readLocal(date)?.dirty && saveState !== "saving") {
+        saveState = "saved";
       }
-    } catch {
+    }
+  } catch {
+    const local = readLocal(date);
+    if (local) {
+      checks = local.checks;
+      note = local.note;
+      metrics = local.metrics ?? {};
+      blockNotes = local.blockNotes ?? {};
+      if (local.dirty) saveState = "offline";
+      else if (!pendingSnap) saveState = "saved";
+    } else {
       checks = {};
       note = "";
       metrics = {};
+      blockNotes = {};
+      if (!pendingSnap) saveState = "saved";
     }
   }
   render();
@@ -201,6 +331,7 @@ function navHtml(): string {
 }
 
 function goCal(): void {
+  flushSave();
   calMonth = date.slice(0, 7);
   tab = "cal";
   render();
@@ -244,6 +375,7 @@ function wireTabs(): void {
   wireAccount();
   app.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => {
     b.onclick = () => {
+      flushSave();
       tab = b.dataset.tab as Tab;
       render();
     };
@@ -360,14 +492,17 @@ function renderDay(): void {
 
 function wireDayNav(): void {
   (document.getElementById("prev") as HTMLButtonElement).onclick = () => {
+    flushSave();
     date = shiftDate(date, -1);
     void loadDay();
   };
   (document.getElementById("next") as HTMLButtonElement).onclick = () => {
+    flushSave();
     date = shiftDate(date, 1);
     void loadDay();
   };
   (document.getElementById("today") as HTMLButtonElement).onclick = () => {
+    flushSave();
     date = todayIso();
     void loadDay();
   };
@@ -577,18 +712,21 @@ async function renderCal(): Promise<void> {
 function wireDayNavLite(): void {
   const prev = document.getElementById("prev") as HTMLButtonElement | null;
   if (prev) prev.onclick = () => {
+    flushSave();
     date = shiftDate(date, -1);
     tab = "today";
     void loadDay();
   };
   const next = document.getElementById("next") as HTMLButtonElement | null;
   if (next) next.onclick = () => {
+    flushSave();
     date = shiftDate(date, 1);
     tab = "today";
     void loadDay();
   };
   const t = document.getElementById("today") as HTMLButtonElement | null;
   if (t) t.onclick = () => {
+    flushSave();
     date = todayIso();
     calMonth = date.slice(0, 7);
     tab = "today";
@@ -1375,7 +1513,7 @@ async function renderSafe(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API.</p>${tabsHtml()}`;
+    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
     wireTabs();
   }
 }
