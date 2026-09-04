@@ -1,0 +1,58 @@
+name: Deploy boulder-plan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy.yml"
+      - "backend/**"
+      - "frontend/**"
+      - "content/**"
+      - "infra/**"
+      - "scripts/**"
+      - "tools/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boulder-plan-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-1
+  STACK_NAME: boulder-plan
+  DEPLOY_ROLE_ARN: arn:aws:iam::817685572750:role/boulder-plan-github-actions-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          role-session-name: boulder-plan-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Backend tests
+        run: npm --workspace backend run test
+
+      - name: Deploy
+        run: ./scripts/deploy.sh
