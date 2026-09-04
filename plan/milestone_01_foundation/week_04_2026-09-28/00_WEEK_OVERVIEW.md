@@ -63,7 +63,7 @@
 
 ## Покупка / организация
 
-- [ ] Опционально проверить даты Mastering the Basics/Technikkurs 1. Курс заменяет одну тренировку, а не добавляется сверху.
+- [ ] Опционально проверить даты [R16: Berta Block — Mastering the Basics](https://www.bertablock.de/mastering-the-basics) / [R20: Berta Block — Technikkurs 1](https://www.bertablock.de/technikkurs-1). Курс заменяет одну тренировку, а не добавляется сверху.
 
 ## Контроль недели
 
