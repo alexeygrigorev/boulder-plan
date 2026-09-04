@@ -58,7 +58,7 @@ export function seedDoc(): RoutesDoc {
     attempts: [],
     timers: {},
     catalogMeta: {
-      gym_berta: { updatedAt: null, status: "NOT_SUPPORTED" },
+      gym_berta: { updatedAt: null, status: "PARTIAL" },
       gym_manual: { updatedAt: null, status: "NOT_SUPPORTED" },
     },
   };

@@ -11,6 +11,8 @@ import {
   UnsupportedQrPayloadError,
 } from "./beta7.ts";
 import { parseGrade } from "./gradeMaps.ts";
+import { parseRoutePage } from "./beta7parse.ts";
+import { applyParsedRoute, gymIdForHandle, type PageFetcher } from "./catalogSync.ts";
 import {
   defaultState,
   findRouteByCanonical,
@@ -95,6 +97,57 @@ export function resolveQr(doc: RoutesDoc, payload: unknown, selectedGymId: unkno
     warnings: ["Трасса ещё без деталей: укажи сектор и грейд вручную. Детали подтянутся после разрешения BETA7."],
     manualFallback: { allowed: true, suggestedFields: MANUAL_FIELDS },
   };
+}
+
+export function isLiveRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.BETA7_OFF !== "1";
+}
+
+const REVALIDATE_AFTER_MS = 7 * 24 * 3600 * 1000;
+
+// Live-вариант: кэш/минимальная запись + подтягивание открытой страницы
+// трассы. Ошибка сети/парсера не блокирует пользователя (spec 17.1):
+// возвращаем сохранённое + предупреждение, попытки пишутся как обычно.
+export async function resolveQrLive(
+  doc: RoutesDoc,
+  payload: unknown,
+  selectedGymId: unknown,
+  fetchPage?: PageFetcher,
+  now: string = new Date().toISOString(),
+): Promise<QrResolveResult> {
+  const base = resolveQr(doc, payload, selectedGymId);
+  if (!fetchPage || !base.route || base.route.provider !== "beta7") return base;
+  const fetchedAt = Date.parse(base.route.sourceFetchedAt);
+  const stale = !Number.isFinite(fetchedAt) || Date.parse(now) - fetchedAt > REVALIDATE_AFTER_MS;
+  if (base.route.grade.raw && !stale) return base;
+  try {
+    const norm = normalizeBeta7RouteUrl(typeof payload === "string" ? payload : "");
+    const { html } = await fetchPage(norm.canonicalUrl);
+    const parsed = parseRoutePage(html, norm.externalId, norm.canonicalUrl);
+    if (!parsed.data.gradeRaw && !parsed.data.name) {
+      return { ...base, warnings: [...base.warnings, "Страница не похожа на трассу — оставил сохранённое."] };
+    }
+    const gymId = gymIdForHandle(doc, parsed.data.gymHandle, base.route.gymId);
+    const { route } = applyParsedRoute(doc, gymId, parsed.data, now);
+    const warnings = [...parsed.warnings];
+    if (typeof selectedGymId === "string" && selectedGymId && route.gymId !== selectedGymId) {
+      warnings.push(`Трасса из зала ${route.gymName}, а выбрана другая тренировка.`);
+    }
+    if (base.route.grade.raw === "") {
+      warnings.push("Детали подтянуты с открытой страницы BETA7.");
+    }
+    return {
+      matched: true,
+      provider: "beta7",
+      route,
+      personalState: doc.states[route.id] ?? null,
+      fieldConfidence: { externalId: 1, ...parsed.fieldConfidence },
+      warnings,
+      manualFallback: { allowed: true, suggestedFields: MANUAL_FIELDS },
+    };
+  } catch {
+    return { ...base, warnings: [...base.warnings, "Не смог подтянуть детали с сайта — работаем с сохранённым."] };
+  }
 }
 
 export interface ManualRouteInput {

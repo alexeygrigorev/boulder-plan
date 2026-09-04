@@ -1,8 +1,8 @@
 // Сиды залов и пример трассы.
-// Berta Block — наблюдаемые публичные метаданные из пакета
-// (examples/beta7_route_observation_2026-09-03.json), только для fixtures.
-// Режим честно SCAN_ONLY: QR распознаём, каталог-sync и внешний fetch
-// включатся после разрешения BETA7 (см. spec гл. 16, legal-шаблоны в пакете).
+// Berta Block — публичные данные без авторизации (пример из пакета +
+// fixtures backend/test/fixtures). Официальный API — out of scope
+// (любительский проект, договариваться не идём): работаем только
+// с открытыми страницами сайта.
 import type { ExternalRoute, Gym } from "./routeTypes.ts";
 import { parseGrade } from "./gradeMaps.ts";
 
@@ -13,17 +13,18 @@ export const SEED_GYMS: Gym[] = [
     city: "Berlin",
     provider: "beta7",
     externalId: "bertablock",
-    integrationMode: "SCAN_ONLY",
+    integrationMode: "FULL",
     gradeScaleId: "berta_v1",
+    catalogUrl: "https://beta7.app/location/bertablock/routes?hl=en",
     capabilities: {
       qrLookup: true,
-      gymCatalog: false,
-      routeDetails: false,
+      gymCatalog: true,
+      routeDetails: true,
       externalLink: true,
       personalHistoryImport: false,
       writeBackSend: false,
     },
-    catalogStatus: "NOT_SUPPORTED",
+    catalogStatus: "PARTIAL",
     catalogUpdatedAt: null,
     routeCount: 1,
   },

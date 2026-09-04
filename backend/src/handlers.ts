@@ -10,7 +10,9 @@ import { exchangeCognitoCode } from "./cognito.ts";
 import type { ProgressEntry } from "./types.ts";
 import { loadRoutesDoc, saveRoutesDoc, recordAttempt, setRouteStatus, startTimer, stopTimer, findRouteById } from "./routeStore.ts";
 import { FAILURE_REASONS, ROUTE_STATUSES } from "./routeTypes.ts";
-import { createManualRoute, enrichRoute, listGymRoutes, resolveQr } from "./routeApi.ts";
+import { createManualRoute, enrichRoute, isLiveRoutesEnabled, listGymRoutes, resolveQrLive } from "./routeApi.ts";
+import { checkSyncRateLimit, syncGymCatalogFromHtml } from "./catalogSync.ts";
+import { safeFetchBeta7Page } from "./beta7fetch.ts";
 import { RECOMMENDATION_VERSION, recommend } from "./recommend.ts";
 import { UnsafeExternalUrlError, UnsupportedQrPayloadError } from "./beta7.ts";
 
@@ -145,23 +147,48 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
       limit: num(query.limit),
     });
     const meta = doc.catalogMeta[query.gymId];
+    const catalogWarning = meta?.status === "NOT_SUPPORTED"
+      ? "Каталог недоступен: работает сканирование QR + ручной ввод."
+      : meta?.status === "PARTIAL"
+        ? "Каталог частичный: первые ~10 с сайта + твои сканы. Отсутствие трассы в списке ничего не значит."
+        : null;
     return json({
       items: items.map((route) => ({ route, personalState: doc.states[route.id] ?? null })),
       catalog: {
         status: meta?.status ?? "UNKNOWN",
         updatedAt: meta?.updatedAt ?? null,
         routeCount: doc.routes.filter((r) => r.gymId === query.gymId).length,
-        warning: meta?.status === "NOT_SUPPORTED"
-          ? "Каталог недоступен без разрешения BETA7: работает scan-only + ручной ввод."
-          : null,
+        warning: catalogWarning,
       },
     });
+  }
+  if (method === "POST" && path === "/api/gym/sync") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.gymId !== "string" || !b.gymId) return json({ error: "gymId required" }, 400);
+    const doc = await loadRoutesDoc();
+    const gym = doc.gyms.find((g) => g.id === b.gymId);
+    if (!gym) return json({ error: "unknown gym" }, 404);
+    if (!gym.catalogUrl) return json({ error: "gym has no public catalog page" }, 400);
+    const limited = checkSyncRateLimit(doc, gym.id, Date.now(), b.force === true);
+    if (limited) return json({ error: limited, retryable: true }, 429);
+    if (!isLiveRoutesEnabled()) return json({ error: "sync disabled (BETA7_OFF=1)", retryable: false }, 503);
+    try {
+      const page = await safeFetchBeta7Page(gym.catalogUrl);
+      const run = syncGymCatalogFromHtml(doc, gym.id, page.html, new Date().toISOString());
+      await saveRoutesDoc(doc);
+      return json(run);
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : "sync failed", retryable: true }, 502);
+    }
   }
   if (method === "POST" && path === "/api/qr/resolve") {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const doc = await loadRoutesDoc();
     try {
-      const out = resolveQr(doc, b.payload, b.selectedGymId);
+      const fetchPage = isLiveRoutesEnabled()
+        ? ((url: string) => safeFetchBeta7Page(url).then((p) => ({ html: p.html })))
+        : undefined;
+      const out = await resolveQrLive(doc, b.payload, b.selectedGymId, fetchPage);
       await saveRoutesDoc(doc);
       return json(out);
     } catch (e) {

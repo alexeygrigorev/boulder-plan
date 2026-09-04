@@ -50,6 +50,7 @@ export interface Gym {
   integrationMode: IntegrationMode;
   gradeScaleId: string | null;
   capabilities: ProviderCapabilities;
+  catalogUrl?: string | null | undefined;
   catalogStatus?: string | undefined;
   catalogUpdatedAt?: string | null | undefined;
   routeCount?: number | undefined;

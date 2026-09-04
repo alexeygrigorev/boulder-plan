@@ -10,6 +10,7 @@ const { route } = await import("../src/handlers.ts");
 const { seedDoc, saveRoutesDoc } = await import("../src/routeStore.ts");
 
 beforeEach(async () => {
+  process.env.BETA7_OFF = "1";
   await saveRoutesDoc(seedDoc());
 });
 
