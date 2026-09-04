@@ -8,6 +8,9 @@ import { loadConfig, sharedAuthPublicConfig, type AppConfig } from "./config.ts"
 import { bearerEmail, issueSessionToken } from "./jwt.ts";
 import { exchangeCognitoCode } from "./cognito.ts";
 import type { ProgressEntry } from "./types.ts";
+import { loadRoutesDoc, saveRoutesDoc } from "./routeStore.ts";
+import { createManualRoute, enrichRoute, listGymRoutes, resolveQr } from "./routeApi.ts";
+import { UnsafeExternalUrlError, UnsupportedQrPayloadError } from "./beta7.ts";
 
 export interface ApiRequest {
   method: string;
@@ -107,6 +110,106 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
   }
   if (method === "GET" && path === "/api/glossary") {
     return json(plan.glossary);
+  }
+  if (method === "GET" && path === "/api/gyms") {
+    const doc = await loadRoutesDoc();
+    return json({
+      gyms: doc.gyms.map((g) => ({
+        ...g,
+        catalogUpdatedAt: doc.catalogMeta[g.id]?.updatedAt ?? null,
+        routeCount: doc.routes.filter((r) => r.gymId === g.id && r.availability === "ACTIVE").length,
+      })),
+    });
+  }
+  if (method === "GET" && path === "/api/gym/routes") {
+    if (typeof query.gymId !== "string" || !query.gymId) return json({ error: "gymId required" }, 400);
+    const doc = await loadRoutesDoc();
+    if (!doc.gyms.some((g) => g.id === query.gymId)) return json({ error: "unknown gym" }, 404);
+    const num = (v: string | undefined): number | undefined => {
+      if (v === undefined || v === "") return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const styles = typeof query.styles === "string" && query.styles
+      ? query.styles.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    const items = listGymRoutes(doc, {
+      gymId: query.gymId,
+      availability: typeof query.availability === "string" && query.availability ? query.availability : undefined,
+      difficultyMin: num(query.difficultyMin),
+      difficultyMax: num(query.difficultyMax),
+      styles,
+      excludeSent: query.excludeSent === "true" || query.excludeSent === "1",
+      limit: num(query.limit),
+    });
+    const meta = doc.catalogMeta[query.gymId];
+    return json({
+      items: items.map((route) => ({ route, personalState: doc.states[route.id] ?? null })),
+      catalog: {
+        status: meta?.status ?? "UNKNOWN",
+        updatedAt: meta?.updatedAt ?? null,
+        routeCount: doc.routes.filter((r) => r.gymId === query.gymId).length,
+        warning: meta?.status === "NOT_SUPPORTED"
+          ? "Каталог недоступен без разрешения BETA7: работает scan-only + ручной ввод."
+          : null,
+      },
+    });
+  }
+  if (method === "POST" && path === "/api/qr/resolve") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const doc = await loadRoutesDoc();
+    try {
+      const out = resolveQr(doc, b.payload, b.selectedGymId);
+      await saveRoutesDoc(doc);
+      return json(out);
+    } catch (e) {
+      if (e instanceof UnsafeExternalUrlError) {
+        return json({ matched: false, code: e.code, message: "Ссылка не из разрешённого домена.", manualFallback: { allowed: false, suggestedFields: [] } }, 400);
+      }
+      if (e instanceof UnsupportedQrPayloadError) {
+        return json({ matched: false, code: e.code, message: "Это не ссылка на трассу BETA7. Можно добавить вручную.", manualFallback: { allowed: true, suggestedFields: ["gymId", "sector", "gradeRaw", "name", "styles"] } }, 422);
+      }
+      throw e;
+    }
+  }
+  if (method === "POST" && path === "/api/gym/routes") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.gymId !== "string" || !b.gymId) return json({ error: "gymId required" }, 400);
+    const doc = await loadRoutesDoc();
+    try {
+      const route = createManualRoute(doc, {
+        gymId: b.gymId,
+        sector: typeof b.sector === "string" ? b.sector : null,
+        name: typeof b.name === "string" ? b.name : null,
+        gradeRaw: typeof b.gradeRaw === "string" ? b.gradeRaw : "",
+        styles: Array.isArray(b.styles) ? b.styles.filter((s): s is string => typeof s === "string") : [],
+        setter: typeof b.setter === "string" ? b.setter : null,
+        holdDescription: typeof b.holdDescription === "string" ? b.holdDescription : null,
+      }, new Date().toISOString());
+      await saveRoutesDoc(doc);
+      return json({ route, personalState: doc.states[route.id] ?? null }, 201);
+    } catch {
+      return json({ error: "unknown gym" }, 404);
+    }
+  }
+  if (method === "PUT" && path === "/api/gym/route") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.id !== "string" || !b.id) return json({ error: "id required" }, 400);
+    const doc = await loadRoutesDoc();
+    try {
+      const patch = (typeof b.patch === "object" && b.patch !== null ? b.patch : {}) as Record<string, unknown>;
+      const route = enrichRoute(doc, b.id, {
+        sector: typeof patch.sector === "string" ? patch.sector : patch.sector === null ? null : undefined,
+        name: typeof patch.name === "string" ? patch.name : patch.name === null ? null : undefined,
+        gradeRaw: typeof patch.gradeRaw === "string" ? patch.gradeRaw : undefined,
+        styles: Array.isArray(patch.styles) ? patch.styles.filter((s): s is string => typeof s === "string") : undefined,
+        setter: typeof patch.setter === "string" ? patch.setter : patch.setter === null ? null : undefined,
+      }, new Date().toISOString());
+      await saveRoutesDoc(doc);
+      return json({ route, personalState: doc.states[route.id] ?? null });
+    } catch {
+      return json({ error: "unknown route" }, 404);
+    }
   }
   if (method === "GET" && path === "/api/activity") {
     const { from = plan.meta.period.from, to = plan.meta.period.to } = query;
