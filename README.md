@@ -36,6 +36,20 @@ npm run dev      # backend :3000 + раздача frontend
 - `GET /api/progress?date=YYYY-MM-DD` — прогресс дня
 - `PUT /api/progress` `{ date, checks, note }` — сохранить
 - `GET /api/library` — библиотека упражнений T01–T26, H1–H3
+- `GET /api/gyms` — залы (Berta Block scan-only + ручной)
+- `GET /api/gym/routes?gymId=` — трассы зала с личными статусами
+- `POST /api/qr/resolve` `{ payload, selectedGymId }` — распознать QR (без внешнего fetch до разрешения BETA7)
+- `POST /api/gym/routes` / `PUT /api/gym/route` — ручное добавление/дополнение трассы
+- `GET /api/route?id=` — карточка: трасса + статус + попытки + таймеры
+- `PUT /api/route/state` — статус (хочу/проект/сделал/флеш/пропуск)
+- `POST /api/route/attempts` — попытка (идемпотентно по `clientAttemptId`)
+- `POST /api/route/timer/start|stop` — время работы над трассой
+- `POST /api/recommendations` — подбор трасс под упражнения (`rules_v1`, с причинами)
+
+Фронтенд: вкладка «Трассы» — выбор зала, QR (вставка ссылки или скан
+камерой, декодирование локально), карточка, попытки в один тап, подбор.
+PostgreSQL из пакета адаптирован: один JSON-документ (`routes.json`
+локально, `pk=routes#v1` в той же DynamoDB-таблице, без смены infra).
 
 В AWS те же маршруты идут через API Gateway → одна Lambda.
 
