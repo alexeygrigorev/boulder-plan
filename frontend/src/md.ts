@@ -6,6 +6,7 @@ export function md(body: string): string {
   const inline = (s: string) =>
     esc(s)
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\(doc:([A-Za-z0-9_]+)\)/g, '<button class="doclink" data-doc="$2">$1</button>')
       .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
       .replace(/`([^`]+)`/g, "<code>$1</code>");
   const lines = body.split("\n");

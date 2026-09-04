@@ -7,7 +7,7 @@ import { md } from "./md";
 
 const app = document.getElementById("app")!;
 
-type Tab = "today" | "cal" | "prog" | "lib" | "safe" | "routes";
+type Tab = "today" | "cal" | "prog" | "lib" | "safe" | "routes" | "doc";
 type LibSub = "ex" | "dict" | "vids" | "shop";
 
 let tab: Tab = "today";
@@ -256,6 +256,7 @@ function render(): void {
   else if (tab === "routes") void renderRoutes();
   else if (tab === "prog") void renderProg();
   else if (tab === "lib") void renderLib();
+  else if (tab === "doc") void renderDoc();
   else void renderSafe();
 }
 
@@ -1287,6 +1288,75 @@ function libEntryHtml(entry: { id: string; title: string; body: string; coaching
       `<button class="term" data-term="${esc(g.term)}" title="${esc(g.explanation)}">${esc(g.term)}</button>`).join("")}</div>` : ""}
     <div class="accbody">${md(entry.body)}</div>
   </div>`;
+}
+
+// Внутренние документы плана ([текст](doc:ID) в md): просмотр с кнопкой «назад».
+let openDocId: string | null = null;
+let docReturn: Tab = "today";
+const docCache = new Map<string, { id: string; title: string; body: string }>();
+
+function openDoc(id: string): void {
+  if (!/^[A-Za-z0-9_]+$/.test(id)) return;
+  flushSave();
+  if (tab !== "doc") docReturn = tab;
+  openDocId = id;
+  tab = "doc";
+  render();
+}
+
+async function renderDoc(): Promise<void> {
+  const id = openDocId;
+  if (!id) {
+    tab = docReturn;
+    render();
+    return;
+  }
+  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка…</p>${tabsHtml()}`;
+  wireTabs();
+  wireDayNavLite();
+  try {
+    let doc = docCache.get(id);
+    if (!doc) {
+      doc = await api.doc(id);
+      docCache.set(id, doc);
+    }
+    app.innerHTML = `<header class="top">${navHtml()}</header>
+      <button class="subchip" id="docback">‹ Назад</button>
+      <h1>${esc(doc.title)}</h1>
+      ${md(doc.body)}
+      ${tabsHtml()}`;
+    wireTabs();
+    wireDayNavLite();
+    (document.getElementById("docback") as HTMLButtonElement).onclick = () => {
+      tab = docReturn;
+      render();
+    };
+  } catch (e) {
+    if (needLogin(e)) {
+      renderLogin();
+      return;
+    }
+    app.innerHTML = `<header class="top">${navHtml()}</header>
+      <button class="subchip" id="docback">‹ Назад</button>
+      <h1>Документ</h1>
+      <p>Не открылось: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
+    wireTabs();
+    wireDayNavLite();
+    (document.getElementById("docback") as HTMLButtonElement).onclick = () => {
+      tab = docReturn;
+      render();
+    };
+  }
+}
+
+// Делегированные клики по [data-doc] из md(): блоки, секции, библиотека.
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => {
+    const el = (e.target as HTMLElement | null)?.closest?.("[data-doc]") as HTMLElement | null;
+    if (!el || !el.dataset.doc) return;
+    e.preventDefault();
+    openDoc(el.dataset.doc);
+  });
 }
 
 async function renderSafe(): Promise<void> {

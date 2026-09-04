@@ -264,6 +264,24 @@ textarea.note {
   font-family: inherit;
 }
 
+/* Заметка под задачей */
+.bnote { margin-top: 8px; }
+.bnote:empty { display: none; margin: 0; }
+.notetoggle { width: 100%; text-align: left; background: none; border: 1px dashed #3a434c;
+  color: var(--muted); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+textarea.blocknote { width: 100%; min-height: 52px; margin-top: 6px; background: var(--card2);
+  color: var(--text); border: 1px solid #333; border-radius: 10px; padding: 8px 10px;
+  font-size: 14px; font-family: inherit; }
+
+/* Критерии «Готово, когда» */
+.seccheck { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
+  border-top: 1px solid #2c343d; }
+.seccheck:first-of-type { border-top: none; }
+.seccheck .check { flex: 0 0 auto; }
+.seccheck .stext { flex: 1; }
+.seccheck .stext p { margin: 0; }
+.seccheck.on .stext { color: var(--muted); text-decoration: line-through; }
+
 nav.tabs {
   position: fixed;
   left: 0;
@@ -409,7 +427,27 @@ i.sw.fRec { background: #4fd6c4; }
   display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; }
 .meter span { color: var(--muted); }
 .meter strong { font-size: 18px; min-width: 28px; text-align: center; }
+.meter strong.emptyval { color: var(--muted); font-size: 12px; font-weight: 400; }
 .meter button { padding: 6px 12px; font-size: 16px; }
+
+/* Внутренние ссылки на документы плана */
+.doclink { background: none; border: none; padding: 0; color: var(--accent);
+  font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* История попыток по сессиям */
+.sess { margin: 8px 0; }
+.sessdate { background: none; border: none; color: var(--accent); font-size: 14px; font-weight: 700;
+  padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
+.sessdate.dim { color: var(--muted); text-decoration: none; }
+.att { display: flex; align-items: center; gap: 8px; background: var(--card);
+  border: 1px solid #2c343d; border-radius: 10px; padding: 6px 8px; margin-top: 6px; font-size: 14px; }
+.attnum { color: var(--muted); min-width: 28px; }
+.attres { font-weight: 700; }
+.attfail { color: var(--muted); flex: 1; }
+.atttime { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+.attx { border: 1px solid #3a434c; background: none; color: var(--muted); border-radius: 8px;
+  padding: 2px 10px; font-size: 15px; line-height: 1.4; }
+.attx.armed { border-color: var(--red); color: var(--red); font-size: 13px; }
 
 /* Типы дней в календаре */
 .mcell.kind-workout { border-color: #8a6d1f; border-width: 2px; }
