@@ -425,6 +425,30 @@ function weekSectionsHtml(w: PlanWeekFull): string {
     .join("");
 }
 
+// «Готово, когда»: критерии из плана — настоящие галочки, а не буллеты.
+// Ключи sec:done:{i} не пересекаются с id блоков, на подсчёт прогресса не влияют.
+function doneCriteriaHtml(s: { heading: string; body: string }): string {
+  const items: string[] = [];
+  const rest: string[] = [];
+  for (const line of s.body.split("\n")) {
+    const m = /^-\s+\[[ xX]?\]\s*(.*)$/.exec(line);
+    if (m) items.push(m[1]);
+    else if (line.trim()) rest.push(line);
+  }
+  if (!items.length) return `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`;
+  return `<details class="section" open><summary>${esc(s.heading)}</summary>
+    ${rest.length ? md(rest.join("\n")) : ""}
+    ${items.map((t, i) => {
+      const key = `sec:done:${i}`;
+      const on = !!checks[key];
+      return `<div class="seccheck${on ? " on" : ""}">
+        <button class="check" data-seccheck="${key}" aria-label="Отметить пункт">${on ? "✓" : "○"}</button>
+        <div class="stext">${md(t)}</div>
+      </div>`;
+    }).join("")}
+  </details>`;
+}
+
 function renderDay(): void {
   if (!day) {
     void loadDay();
@@ -435,6 +459,9 @@ function renderDay(): void {
   const pct = d.blocks.length ? Math.round((done / d.blocks.length) * 100) : 0;
   const stopRules = d.sections.find((s) => /закончить раньше/i.test(s.heading));
   const others = d.sections.filter((s) => !/чек-лист/i.test(s.heading) && s !== stopRules);
+  const isWorkout = (d.format ?? "").startsWith("Тренировка");
+  const doneCriteria = others.find((s) => /готово, когда/i.test(s.heading));
+  const restSections = others.filter((s) => s !== doneCriteria);
 
   app.innerHTML = `<header class="top">${navHtml()}</header>
     <h1>${esc(d.title)}</h1>${accountHtml()}
@@ -445,30 +472,29 @@ function renderDay(): void {
       ${d.requiredMinutes ? `<span>· ~${d.requiredMinutes} мин</span>` : ""}
     </div>
     ${d.cue ? `<div class="cue"><strong>Cue:</strong> ${esc(d.cue)}</div>` : ""}
+    <h3>Самочувствие</h3>
+    <div class="meters" id="meters">${metersHtml()}</div>
     <div class="progress"><div style="width:${pct}%"></div></div>
     <div class="proglabel">${done}/${d.blocks.length} · ${pct}%</div>
-    <button class="listitem" id="gotoroutes"><div class="d">🧗 Трассы зала</div>
-    <div class="s">QR у стены, попытки, подбор под тренировку</div></button>
-    <div id="blocks">${d.blocks.map(blockHtml).join("")}</div>
+    ${isWorkout ? `<button class="listitem" id="gotoroutes"><div class="d">🧗 Трассы зала</div>
+    <div class="s">QR у стены, попытки, подбор под тренировку</div></button>` : ""}
+    <div id="blocks">${d.blocks.map((b) => blockHtml(b, isWorkout)).join("")}</div>
     <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
     ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
-    ${others.map((s) => `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`).join("")}
-    <h3>Утренняя реакция</h3>
-    <div class="meters">
-      ${meterHtml("shoulder", "Плечо", 0, 10)}
-      ${meterHtml("fingers", "Пальцы", 0, 10)}
-      ${meterHtml("knee", "Колено", 0, 10)}
-      ${meterHtml("energy", "Энергия", 1, 5)}
-    </div>
+    ${doneCriteria ? doneCriteriaHtml(doneCriteria) : ""}
+    ${restSections.map((s) => `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`).join("")}
     <h3>Заметка дня</h3>
     <textarea class="note" id="note" placeholder="Техника одной фразой, плечо/пальцы/колено 0–10…">${esc(note)}</textarea>
+    <div class="meta" id="savestate"></div>
     ${tabsHtml()}`;
 
   wireDayNav();
   wireTabs();
   wireBlocks();
   wireMeters();
-  (document.getElementById("gotoroutes") as HTMLButtonElement).onclick = () => {
+  paintSaveState();
+  const gor = document.getElementById("gotoroutes") as HTMLButtonElement | null;
+  if (gor) gor.onclick = () => {
     tab = "routes";
     void renderRoutes();
   };
@@ -522,6 +548,17 @@ function wireBlocks(): void {
       renderDay();
     };
   });
+  // Критерии «Готово, когда»: переключаем на месте, <details> не сворачиваем.
+  app.querySelectorAll<HTMLButtonElement>("[data-seccheck]").forEach((b) => {
+    b.onclick = () => {
+      const id = b.dataset.seccheck!;
+      checks[id] = !checks[id];
+      scheduleSave();
+      const on = !!checks[id];
+      b.textContent = on ? "✓" : "○";
+      b.closest(".seccheck")?.classList.toggle("on", on);
+    };
+  });
   app.querySelectorAll<HTMLButtonElement>("[data-timer]").forEach((b) => {
     b.onclick = () => toggleTimer(b.dataset.timer!);
   });
@@ -536,6 +573,21 @@ function meterHtml(key: keyof DayMetrics, label: string, min: number, max: numbe
   </div>`;
 }
 
+// Шкалы от большего значения к меньшему, незаполненные — внизу.
+function metersHtml(): string {
+  return [...METER_DEFS]
+    .sort((a, b) => (metrics[b.key] ?? -1) - (metrics[a.key] ?? -1))
+    .map((m) => meterHtml(m.key, m.label, m.min, m.max))
+    .join("");
+}
+
+function paintMeters(): void {
+  const box = document.getElementById("meters");
+  if (!box) return;
+  box.innerHTML = metersHtml();
+  wireMeters();
+}
+
 function wireMeters(): void {
   app.querySelectorAll<HTMLButtonElement>("[data-meter]").forEach((b) => {
     b.onclick = () => {
@@ -547,22 +599,28 @@ function wireMeters(): void {
       const next = cur === undefined ? (d > 0 ? min : max) : Math.min(max, Math.max(min, cur + d));
       if (next === cur) return;
       metrics[key] = next;
-      const el = document.getElementById(`mv-${key}`);
-      if (el) el.textContent = String(next);
       scheduleSave();
+      paintMeters(); // пересортировать: большее — наверх
     };
   });
 }
 
-function blockHtml(b: PlanDay["blocks"][number]): string {
+function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string {
   const t = timers.get(b.id);
   const left = t ? t.left : b.minutes * 60;
   const running = t?.on ?? false;
+  // На нетренировочных днях «таймлайн» 00:00–05:00 бессмысленен (это минуты
+  // от начала рутины, а не время дня) — показываем длительность.
+  const timeChip = showTimeline
+    ? `${esc(b.start)}–${esc(b.end)}`
+    : b.minutes > 0 ? `~${b.minutes} мин` : "";
+    /конспект|журнал/i.test(b.kind) ||
+    /запиш|выпиш|отметь|отмечай|сохрани|внеси|замерь|измерь|сними|сфотографируй/i.test(b.text);
   return `<div class="block ${checks[b.id] ? "done" : ""}">
     <div class="row1">
       <button class="check" data-check="${b.id}" aria-label="Отметить блок">${checks[b.id] ? "✓" : "○"}</button>
-      <div><span class="time">${esc(b.start)}–${esc(b.end)}</span>
-        <span class="kind"> · ${esc(b.kind)}</span>
+      <div>${timeChip ? `<span class="time">${timeChip}</span>` : ""}
+        <span class="kind">${timeChip ? "· " : ""}${esc(b.kind)}</span>
         <div class="chips"><span class="chip req">${esc(b.requirement)}</span>${b.section !== "Чек-лист по минутам" ? `<span class="chip">${esc(b.section)}</span>` : ""}</div>
       </div>
     </div>
