@@ -440,16 +440,32 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
     if (typeof b.checks !== "object" || b.checks === null) return json({ error: "body.checks must be object" }, 400);
     const metrics = parseMetrics(b.metrics);
     if (metrics === null) return json({ error: "body.metrics must be {shoulder,fingers,knee 0-10, energy 1-5}" }, 400);
+    const notes = parseBlockNotes(b.notes);
+    if (notes === null) return json({ error: "body.notes must be {blockId: text}" }, 400);
     const entry: ProgressEntry = {
       date: b.date,
       checks: b.checks as Record<string, boolean>,
       note: typeof b.note === "string" ? b.note.slice(0, 2000) : "",
       ...(metrics ? { metrics } : {}),
+      ...(notes ? { notes } : {}),
       updatedAt: new Date().toISOString(),
     };
     return json(await store.put(entry));
   }
   return json({ error: "not found", path }, 404);
+}
+
+function parseBlockNotes(v: unknown): Record<string, string> | undefined | null {
+  if (v === undefined) return undefined;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (Object.keys(out).length >= 50) break;
+    if (typeof val !== "string") return null;
+    const t = val.slice(0, 500);
+    if (t) out[k.slice(0, 64)] = t;
+  }
+  return out;
 }
 
 function parseMetrics(v: unknown): ProgressEntry["metrics"] | undefined | null {

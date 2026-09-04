@@ -37,6 +37,7 @@ export interface DayProgress {
   checks: Record<string, boolean>;
   note: string;
   metrics?: DayMetrics;
+  notes?: Record<string, string>;
 }
 
 export interface DaySummary {
@@ -252,8 +253,8 @@ export const api = {
   plan: (date: string) => get<PlanDay>(`/api/plan?date=${date}`),
   progress: (date: string) =>
     get<DayProgress>(`/api/progress?date=${date}`),
-  saveProgress: (date: string, checks: Record<string, boolean>, note: string, metrics?: DayMetrics) =>
-    put(`/api/progress`, { date, checks, note, ...(metrics ? { metrics } : {}) }),
+  saveProgress: (date: string, checks: Record<string, boolean>, note: string, metrics?: DayMetrics, notes?: Record<string, string>) =>
+    put<DayProgress>(`/api/progress`, { date, checks, note, ...(metrics ? { metrics } : {}), ...(notes ? { notes } : {}) }),
   library: () => get<{ id: string; title: string }[]>("/api/library"),
   libraryEntry: (id: string) => get<LibraryEntryFull>(`/api/library/entry?id=${id}`),
   doc: (id: string) => get<{ id: string; title: string; body: string }>(`/api/doc?id=${id}`),

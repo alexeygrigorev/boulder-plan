@@ -89,5 +89,7 @@ export interface ProgressEntry {
   checks: Record<string, boolean>;
   note?: string;
   metrics?: DayMetrics;
+  /** Заметки к отдельным блокам дня: blockId -> текст */
+  notes?: Record<string, string>;
   updatedAt: string;
 }
