@@ -11,6 +11,7 @@ import type { ProgressEntry } from "./types.ts";
 import { loadRoutesDoc, saveRoutesDoc, recordAttempt, setRouteStatus, startTimer, stopTimer, findRouteById } from "./routeStore.ts";
 import { FAILURE_REASONS, ROUTE_STATUSES } from "./routeTypes.ts";
 import { createManualRoute, enrichRoute, listGymRoutes, resolveQr } from "./routeApi.ts";
+import { RECOMMENDATION_VERSION, recommend } from "./recommend.ts";
 import { UnsafeExternalUrlError, UnsupportedQrPayloadError } from "./beta7.ts";
 
 export interface ApiRequest {
@@ -210,6 +211,52 @@ export async function route(req: ApiRequest, config: AppConfig = loadConfig()): 
       return json({ route, personalState: doc.states[route.id] ?? null });
     } catch {
       return json({ error: "unknown route" }, 404);
+    }
+  }
+  if (method === "POST" && path === "/api/recommendations") {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof b.gymId !== "string" || !b.gymId) return json({ error: "gymId required" }, 400);
+    if (!Array.isArray(b.exercises) || !b.exercises.length) return json({ error: "exercises required" }, 400);
+    const doc = await loadRoutesDoc();
+    if (!doc.gyms.some((g) => g.id === b.gymId)) return json({ error: "unknown gym" }, 404);
+    try {
+      const exercises = b.exercises.map((e) => {
+        const ex = e as Record<string, unknown>;
+        if (typeof ex.id !== "string" || !ex.id) throw new Error("bad exercise");
+        const diff = ex.difficulty as { min?: unknown; max?: unknown } | undefined;
+        const min = typeof diff?.min === "number" ? diff.min : 0;
+        const max = typeof diff?.max === "number" ? diff.max : 10;
+        const tc = typeof ex.targetCount === "number" && Number.isInteger(ex.targetCount) && ex.targetCount > 0
+          ? Math.min(20, ex.targetCount)
+          : 3;
+        return {
+          id: ex.id,
+          targetCount: tc,
+          difficulty: { min, max },
+          targetStyles: Array.isArray(ex.targetStyles)
+            ? ex.targetStyles.filter((s): s is string => typeof s === "string")
+            : [],
+          excludeSent: ex.excludeSent !== false,
+          preferWantToTry: ex.preferWantToTry !== false,
+          selectionPolicy: typeof ex.selectionPolicy === "string" ? ex.selectionPolicy : "FREE",
+        };
+      });
+      const { exercises: out, empty } = recommend(doc, b.gymId, exercises, Date.now());
+      const meta = doc.catalogMeta[b.gymId];
+      return json({
+        gymId: b.gymId,
+        generatedAt: new Date().toISOString(),
+        recommendationVersion: RECOMMENDATION_VERSION,
+        catalog: {
+          status: meta?.status ?? "UNKNOWN",
+          updatedAt: meta?.updatedAt ?? null,
+          routeCount: doc.routes.filter((r) => r.gymId === b.gymId).length,
+          warning: empty ? "Подходящих трасс нет — попробуй scan-only поиск у стены." : null,
+        },
+        exercises: out,
+      });
+    } catch {
+      return json({ error: "bad exercises (difficulty 0..10, min<=max)" }, 400);
     }
   }
   if (method === "GET" && path === "/api/route") {
