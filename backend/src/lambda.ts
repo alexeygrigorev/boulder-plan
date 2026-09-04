@@ -114,7 +114,10 @@ export const handler = async (event: ApiGatewayEvent) => {
       body = undefined;
     }
   }
-  const res = await route({ method, path: pathName, query, headers, body }, config);
+  const res = await route({ method, path: pathName, query, headers, body }, config).catch((err) => ({
+    status: 500 as const,
+    body: { error: err instanceof Error ? err.message : "internal error" },
+  }));
   return {
     statusCode: res.status,
     headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
