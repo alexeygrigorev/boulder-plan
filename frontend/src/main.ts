@@ -1067,16 +1067,16 @@ function renderRoutesView(): void {
   const card = openRouteId ? cardCache.get(openRouteId) : undefined;
   app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>Трассы</h1>${accountHtml()}
-    <div class="subchips">${gymsCache.map((g) =>
+    <div class="subchips scrollx">${gymsCache.map((g) =>
       `<button class="subchip ${g.id === selGym ? "active" : ""}" data-gym="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>
     ${catalogWarn ? `<div class="cue">${esc(catalogWarn)}</div>` : ""}
-    ${gym?.provider === "beta7" ? `<div class="meta"><span>QR у стартового зацепа → карточка. Каталог — после разрешения BETA7.</span></div>` : ""}
+    ${gym?.provider === "beta7" ? `<details class="section slim"><summary>Как это работает</summary><p class="hint">QR у стартового зацепа → карточка трассы. Каталог пополняется после разрешения BETA7.</p></details>` : ""}
     <h3>QR-код трассы</h3>
-    <input class="search" id="qrtext" placeholder="Вставь ссылку с QR (https://beta7.app/route/…)" value="${esc(qrText)}" inputmode="url" />
-    <div class="subchips">
-      <button class="subchip active" id="qrgo">Распознать</button>
-      ${canScan ? `<button class="subchip" id="qrscan">${scanning ? "Остановить камеру" : "Сканировать камерой"}</button>` : ""}
+    <div class="qrrow">
+      <input class="search" id="qrtext" placeholder="Вставь ссылку с QR (https://beta7.app/route/…)" value="${esc(qrText)}" inputmode="url" aria-label="Ссылка с QR-кода трассы" />
+      ${canScan ? `<button class="iconbtn${scanning ? " active" : ""}" id="qrscan" aria-label="${scanning ? "Остановить камеру" : "Сканировать камерой"}">📷</button>` : ""}
     </div>
+    <button class="primary blockbtn" id="qrgo">Распознать трассу</button>
     ${scanning ? `<video id="scanvid" playsinline muted style="width:100%;border-radius:12px;background:#000"></video>` : ""}
     ${qrMsg ? `<div class="cue">${esc(qrMsg)}</div>` : ""}
     ${card ? routeCardHtml(card) : ""}

@@ -610,6 +610,53 @@ i.sw.fRec { background: #4fd6c4; }
   padding: 2px 10px; font-size: 15px; line-height: 1.4; }
 .attx.armed { border-color: var(--red); color: var(--red); font-size: 13px; }
 
+/* Трассы: QR-ряд с primary-действием */
+.qrrow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.qrrow .search {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0;
+}
+
+.iconbtn {
+  min-width: 52px;
+  min-height: 52px;
+  font-size: 22px;
+  border-radius: 14px;
+  flex: 0 0 auto;
+}
+
+.iconbtn.active {
+  border-color: var(--accent);
+  background: #2a2410;
+}
+
+.blockbtn {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  min-height: 52px;
+  font-weight: 700;
+}
+
+details.slim {
+  padding: 8px 12px;
+}
+
+details.slim summary {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+details.slim .hint {
+  margin: 6px 0 2px;
+}
+
 /* Типы дней в календаре */
 .mcell.kind-workout { border-color: #8a6d1f; border-width: 2px; }
 .mcell.kind-sunday { background: #2a2113; }
