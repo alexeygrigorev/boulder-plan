@@ -104,12 +104,6 @@ function fmtLetter(format: string | null): string {
   return "·";
 }
 
-function kindLabel(iso: string, format: string | null): string {
-  if (new Date(iso + "T12:00:00").getDay() === 0) return "воскресенье · relaxed, опционально";
-  if (format && (format.startsWith("Тренировка A") || format.startsWith("Тренировка B"))) return "тренировка";
-  return "обычный день";
-}
-
 function localKey(d: string): string {
   return `bp:${d}`;
 }
@@ -326,7 +320,7 @@ function fmtDateRu(iso: string): string {
 function navHtml(): string {
   return `<div class="dateline">
     <button id="prev" aria-label="Предыдущий день">‹</button>
-    <div class="datewrap"><button id="datebtn" aria-label="Открыть календарь">📅 ${fmtDateRu(date)}</button></div>
+    <div class="datewrap"><button id="datebtn" aria-label="Открыть календарь">${fmtDateRu(date)}</button></div>
     <button id="next" aria-label="Следующий день">›</button>
     <button id="today" class="primary">Сегодня</button>
   </div>`;
@@ -342,7 +336,7 @@ function goCal(): void {
 function brandHtml(): string {
   return `<div class="brand"><span class="blogo" aria-hidden="true">🪨</span>
     <span class="bname">Болдер-план</span>
-    <button id="datebtn" class="datechip" aria-label="Открыть календарь">📅 ${fmtDateRu(date)}</button></div>`;
+    <button id="datebtn" class="datechip" aria-label="Открыть календарь">${fmtDateRu(date)}</button></div>`;
 }
 
 // Контекстная шапка: переключатель дней — только на экране дня,
@@ -557,18 +551,20 @@ function renderDay(): void {
   const restSections = others.filter((s) => s !== doneCriteria);
 
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <h1>${esc(d.title)}</h1>${accountHtml()}
-    <div class="meta">
-      <span>· ${esc(kindLabel(d.date, d.format))}</span>
-      ${d.format ? `<span>· ${esc(d.format)}</span>` : ""}
-      ${d.theme ? `<span>· тема: ${esc(d.theme)}</span>` : ""}
-      ${d.requiredMinutes ? `<span>· ~${d.requiredMinutes} мин</span>` : ""}
+    <div class="herochips">
+      ${d.format
+        ? `<span class="hchip ${fmtClass(d.format)}">${esc(d.format)}</span>`
+        : `<span class="hchip">Свободный день</span>`}
+      ${d.requiredMinutes ? `<span class="hchip ghost">⏱ ~${d.requiredMinutes} мин</span>` : ""}
+      ${d.theme ? `<span class="hchip ghost">🎯 ${esc(d.theme)}</span>` : ""}
     </div>
-    ${d.cue ? `<div class="cue"><strong>Cue:</strong> ${esc(d.cue)}</div>` : ""}
+    <h1 class="daytitle">${esc(d.title)}</h1>${accountHtml()}
+    ${d.cue ? `<div class="cue focus"><span class="cueicon" aria-hidden="true">💡</span><div><strong>Фокус дня</strong><br>${esc(d.cue)}</div></div>` : ""}
     <h3>Самочувствие</h3>
+    <p class="hint">0 — ничего не беспокоит, 10 — сильно болит · энергия 1–5</p>
     <div class="meters" id="meters">${metersHtml()}</div>
-    <div class="progress"><div style="width:${pct}%"></div></div>
-    <div class="proglabel">${done}/${d.blocks.length} · ${pct}%</div>
+    <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Прогресс дня"><div style="width:${pct}%"></div></div>
+    <div class="proglabel">Готово ${done} из ${d.blocks.length} · ${pct}%</div>
     <div id="blocks">${d.blocks.map((b) => blockHtml(b, isWorkout)).join("")}</div>
     <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
     ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
@@ -728,20 +724,22 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
   // На нетренировочных днях «таймлайн» 00:00–05:00 бессмысленен (это минуты
   // от начала рутины, а не время дня) — показываем длительность.
   const timeChip = showTimeline
-    ? `${esc(b.start)}–${esc(b.end)}`
-    : b.minutes > 0 ? `~${b.minutes} мин` : "";
+    ? `<span class="time" title="Минуты от начала тренировки">🕐 ${esc(b.start)}–${esc(b.end)}</span>`
+    : b.minutes > 0 ? `<span class="time">⏱ ~${b.minutes} мин</span>` : "";
   const bn = blockNotes[b.id] ?? "";
   // Заметка — только где план явно просит (маркер 📝 в тексте задачи)
   // или где заметка уже есть.
   const wantsNote = bn !== "" || b.text.includes("📝");
   const noteOpen = openNote === b.id || bn !== "";
   const preview = bn.length > 42 ? bn.slice(0, 42) + "…" : bn;
-  return `<div class="block ${checks[b.id] ? "done" : ""}">
+  const isOpt = /опционально|по желанию|relaxed/i.test(b.requirement);
+  const on = !!checks[b.id];
+  return `<div class="block ${on ? "done" : ""}">
     <div class="row1">
-      <button class="check" data-check="${b.id}" aria-label="Отметить блок">${checks[b.id] ? "✓" : "○"}</button>
-      <div>${timeChip ? `<span class="time">${timeChip}</span>` : ""}
-        <span class="kind">${timeChip ? "· " : ""}${esc(b.kind)}</span>
-        <div class="chips"><span class="chip req">${esc(b.requirement)}</span>${b.section !== "Чек-лист по минутам" ? `<span class="chip">${esc(b.section)}</span>` : ""}</div>
+      <button class="check" data-check="${b.id}" aria-label="Отметить блок: ${esc(b.kind)}" aria-pressed="${on}">${on ? "✓" : "○"}</button>
+      <div class="bmain">${timeChip}
+        <span class="kind">${esc(b.kind)}</span>
+        <div class="chips"><span class="chip ${isOpt ? "opt" : "req"}">${isOpt ? "○" : "●"} ${esc(b.requirement)}</span>${b.section !== "Чек-лист по минутам" ? `<span class="chip">${esc(b.section)}</span>` : ""}</div>
       </div>
     </div>
     <div class="text">${md(b.text)}</div>
@@ -749,8 +747,8 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
       ? `<div class="detail">${b.intensity ? `Нагрузка: ${esc(b.intensity)}.<br>` : ""}${b.caution ? `Осторожно: ${esc(b.caution)}` : ""}</div>`
       : ""}
     ${b.minutes > 0
-      ? `<div class="timer"><span class="t" id="t-${b.id}">${fmtLeft(left)}</span>
-        <button data-timer="${b.id}">${running ? "Пауза" : t ? "Дальше" : "Старт"}</button></div>`
+      ? `<div class="timer"><span class="t" id="t-${b.id}" title="Осталось">${fmtLeft(left)}</span>
+        <button data-timer="${b.id}">${running ? "⏸ Пауза" : t ? "▶ Дальше" : "▶ Старт"}</button></div>`
       : ""}
     <div class="bnote">
       ${wantsNote ? `<button class="notetoggle" data-notetoggle="${b.id}">${bn ? `✎ ${esc(preview)}` : "✎ Заметка…"}</button>` : ""}

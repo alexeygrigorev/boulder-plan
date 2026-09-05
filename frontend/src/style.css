@@ -111,11 +111,11 @@ h1 {
 }
 
 .progress {
-  height: 10px;
+  height: 14px;
   background: var(--card2);
   border-radius: 99px;
   overflow: hidden;
-  margin: 8px 0 2px;
+  margin: 10px 0 4px;
 }
 
 .progress > div {
@@ -125,8 +125,9 @@ h1 {
 }
 
 .proglabel {
-  font-size: 13px;
-  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .block {
@@ -149,11 +150,11 @@ h1 {
 }
 
 .check {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  border-radius: 10px;
-  font-size: 18px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 12px;
+  font-size: 20px;
   padding: 0;
   line-height: 1;
 }
@@ -197,6 +198,78 @@ h1 {
 
 .chip.req {
   color: var(--accent);
+}
+
+.chip.opt {
+  color: var(--muted);
+}
+
+/* Экран дня: hero, фокус, подсказки */
+.herochips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 2px;
+}
+
+.hchip {
+  border-radius: 99px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--card2);
+  border: 1px solid #3a434d;
+  color: var(--text);
+}
+
+.hchip.ghost {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.hchip.fA { color: #ffb224; border-color: #8a6d1f; background: #2a2410; }
+.hchip.fB { color: #3ddc84; border-color: #2f6b4a; background: #14261b; }
+.hchip.fC { color: #6cb8ff; border-color: #2c4d6b; background: #14202b; }
+.hchip.fHome { color: #cfd6dd; }
+.hchip.fRec { color: #4fd6c4; border-color: #23544d; background: #122624; }
+.hchip.fRest { color: #8b949d; }
+.hchip.fPrep { color: #c792ea; border-color: #4d3560; background: #221a2b; }
+
+.daytitle {
+  font-size: 22px;
+  text-wrap: balance;
+}
+
+.cue.focus {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.cueicon {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 2px 0 8px;
+}
+
+h3 {
+  font-size: 17px;
+  margin: 20px 0 8px;
+  letter-spacing: 0.1px;
+}
+
+.bmain {
+  min-width: 0;
+  flex: 1;
+}
+
+#savestate {
+  font-size: 13px;
 }
 
 .detail {
@@ -317,7 +390,7 @@ nav.tabs button .ti {
 }
 
 nav.tabs button .tl {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
@@ -352,8 +425,9 @@ nav.tabs button.active .tl {
 
 .bname {
   font-weight: 800;
-  font-size: 17px;
+  font-size: 16px;
   letter-spacing: 0.1px;
+  white-space: nowrap;
 }
 
 .datechip {
@@ -504,11 +578,11 @@ i.sw.fRec { background: #4fd6c4; }
 /* Утренняя реакция */
 .meters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .meter { background: var(--card); border: 1px solid #2c343d; border-radius: 12px; padding: 8px;
-  display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; }
-.meter span { color: var(--muted); }
+  display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; min-width: 0; }
+.meter span { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .meter strong { font-size: 18px; min-width: 28px; text-align: center; }
-.meter strong.emptyval { color: var(--muted); font-size: 12px; font-weight: 400; }
-.meter button { padding: 6px 12px; font-size: 16px; }
+.meter strong.emptyval { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.meter button { padding: 8px 14px; font-size: 16px; min-height: 40px; }
 
 /* Внутренние ссылки на документы плана */
 .doclink { background: none; border: none; padding: 0; color: var(--accent);
