@@ -1546,6 +1546,17 @@ async function renderProg(): Promise<void> {
   const req = days.filter((d) => d.requiredTotal > 0 && d.date <= today).length;
   const mins = days.filter((d) => d.date <= today).reduce((s, d) => s + (d.done > 0 ? d.requiredMinutes : 0), 0);
 
+  // Серия: закрытые дни подряд; незакрытое сегодня серию не ломает.
+  const reqPast = days
+    .filter((d) => d.requiredTotal > 0 && d.date <= today)
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  let streak = 0;
+  for (const d of reqPast) {
+    if (d.done >= d.requiredTotal) streak++;
+    else if (d.date === today) continue;
+    else break;
+  }
+
   // Колонки-недели, строки Пн..Вс
   const byDate = new Map(days.map((d) => [d.date, d]));
   const start = new Date("2026-09-03T12:00:00");
@@ -1597,7 +1608,11 @@ async function renderProg(): Promise<void> {
 
   app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>Прогресс</h1>${accountHtml()}
-    <div class="meta"><span>★ ${full} из ${req} дней</span><span>· ~${mins} мин в зале и дома</span></div>
+    <div class="statcards">
+      <div class="statcard"><span class="sval">★ ${full}/${req}</span><span class="slab">дней закрыто</span></div>
+      <div class="statcard"><span class="sval">⏱ ~${mins}</span><span class="slab">минут заняло</span></div>
+      <div class="statcard"><span class="sval">🔥 ${streak}</span><span class="slab">серия дней</span></div>
+    </div>
     <div class="heatwrap"><div class="heat">${heat}</div></div>
     <div class="legend"><span>дырки — дни без отметок</span><span>★ — всё обязательное сделано</span></div>
     ${tabsHtml()}`;
