@@ -685,12 +685,10 @@ function meterHtml(key: keyof DayMetrics, label: string, min: number, max: numbe
   </div>`;
 }
 
-// Шкалы от большего значения к меньшему, незаполненные — внизу.
+// Фиксированный порядок шкал: пересортировка при каждом тапе дезориентирует
+// (ряд, по которому только что тапнули, прыгает на другое место).
 function metersHtml(): string {
-  return [...METER_DEFS]
-    .sort((a, b) => (metrics[b.key] ?? -1) - (metrics[a.key] ?? -1))
-    .map((m) => meterHtml(m.key, m.label, m.min, m.max))
-    .join("");
+  return METER_DEFS.map((m) => meterHtml(m.key, m.label, m.min, m.max)).join("");
 }
 
 function paintMeters(): void {
@@ -712,7 +710,7 @@ function wireMeters(): void {
       if (next === cur) return;
       metrics[key] = next;
       scheduleSave();
-      paintMeters(); // пересортировать: большее — наверх
+      paintMeters(); // порядок фиксированный — ничего не прыгает
     };
   });
 }
