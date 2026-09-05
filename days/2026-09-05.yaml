@@ -1,0 +1,42 @@
+date: '2026-09-05'
+title: 'Подготовка · Суббота · 5 сентября 2026'
+source: '00_START/PRESTART/03_SATURDAY_2026-09-05.md'
+milestone: '00_START'
+week: 'prestart'
+format: null
+theme: null
+cue: null
+requiredMinutes: 0
+blocks:
+  - id: 'b01'
+    start: '00:00'
+    end: '05:00'
+    kind: 'Самопроверка'
+    requirement: 'обязательно'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Проверь кожу пальцев и подстриги только мешающие длинные ногти.
+  - id: 'b02'
+    start: '05:00'
+    end: '15:00'
+    kind: 'Подготовка видео'
+    requirement: 'обязательно'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Поставь телефон/штатив дома и проверь ракурс: в кадре условно должны помещаться пол, верх стены и всё тело.
+  - id: 'b04'
+    start: '25:00'
+    end: '32:00'
+    kind: 'Чтение плана'
+    requirement: 'обязательно'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Прочитай правила [выбора трасс](doc:05_ROUTE_SELECTION) и [переноса дней](doc:10_FLEXIBLE_SCHEDULING).
+sections:
+  - heading: 'Готово, когда'
+    body: |
+      - [ ] Все обязательные пункты отмечены.
+      - [ ] Следующая полная неделя остаётся реалистичной, а не перегруженной.

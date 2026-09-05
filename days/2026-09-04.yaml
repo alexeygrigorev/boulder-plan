@@ -1,0 +1,42 @@
+date: '2026-09-04'
+title: 'Подготовка · Пятница · 4 сентября 2026'
+source: '00_START/PRESTART/02_FRIDAY_2026-09-04.md'
+milestone: '00_START'
+week: 'prestart'
+format: null
+theme: null
+cue: null
+requiredMinutes: 0
+blocks:
+  - id: 'b01'
+    start: '00:00'
+    end: '10:00'
+    kind: 'Теория'
+    requirement: 'обязательно'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Посмотри/прочитай [R01: BMC — How to warm up for a climbing session](https://www.thebmc.co.uk/en/how-to-warm-up-for-a-climbing-session-video) и выпиши четыре этапа: температура → суставы → лёгкое лазание → постепенная нагрузка пальцев. 📝
+  - id: 'b03'
+    start: '18:00'
+    end: '28:00'
+    kind: 'Покупка'
+    requirement: 'опционально'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Закажи/купи простой мини-штатив или зажим и маленькую щётку.
+  - id: 'b04'
+    start: '28:00'
+    end: '40:00'
+    kind: 'Домашняя мобильность'
+    requirement: 'обязательно'
+    section: 'Чек-лист по минутам'
+    intensity: null
+    text: |
+      Выполни H1 из библиотеки: таз, корпус и точность стоп, 12 минут.
+sections:
+  - heading: 'Готово, когда'
+    body: |
+      - [ ] Все обязательные пункты отмечены.
+      - [ ] Следующая полная неделя остаётся реалистичной, а не перегруженной.
