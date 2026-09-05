@@ -259,7 +259,7 @@ function levelOf(a: ActivityDay | undefined, today: string): string {
 }
 
 async function loadDay(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка…</p>`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка…</p>`;
   try {
     day = await api.plan(date);
   } catch (e) {
@@ -268,7 +268,7 @@ async function loadDay(): Promise<void> {
       return;
     }
     day = null;
-    app.innerHTML = `<header class="top">${navHtml()}</header>
+    app.innerHTML = `<header class="top">${topHtml()}</header>
       <h1>Нет плана на ${esc(date)}</h1>
       <p class="meta">План покрывает 2026-09-03 → 07.03.2027. Открой «Календарь», чтобы выбрать день.</p>
       ${tabsHtml()}`;
@@ -339,10 +339,22 @@ function goCal(): void {
   render();
 }
 
+function brandHtml(): string {
+  return `<div class="brand"><span class="blogo" aria-hidden="true">🪨</span>
+    <span class="bname">Болдер-план</span>
+    <button id="datebtn" class="datechip" aria-label="Открыть календарь">📅 ${fmtDateRu(date)}</button></div>`;
+}
+
+// Контекстная шапка: переключатель дней — только на экране дня,
+// на остальных вкладках — компактный бренд с прыжком в календарь.
+function topHtml(): string {
+  return tab === "today" ? navHtml() : brandHtml();
+}
+
 function tabsHtml(): string {
-  const t = (id: Tab, label: string) =>
-    `<button data-tab="${id}" class="${tab === id ? "active" : ""}">${label}</button>`;
-  return `<nav class="tabs">${t("today", "Сегодня")}${t("cal", "Календарь")}${t("routes", "Трассы")}${t("prog", "Прогресс")}${t("lib", "Библиотека")}${t("safe", "Безопасность")}</nav>`;
+  const t = (id: Tab, label: string, icon: string) =>
+    `<button data-tab="${id}" class="${tab === id ? "active" : ""}" aria-label="${label}"><span class="ti" aria-hidden="true">${icon}</span><span class="tl">${label}</span></button>`;
+  return `<nav class="tabs">${t("today", "Сегодня", "🏠")}${t("cal", "Календарь", "🗓️")}${t("routes", "Трассы", "🧗")}${t("prog", "Прогресс", "📊")}${t("lib", "Библиотека", "📚")}${t("safe", "Безопасность", "⛑️")}</nav>`;
 }
 
 function renderLogin(error = ""): void {
@@ -544,7 +556,7 @@ function renderDay(): void {
   const doneCriteria = others.find((s) => /готово, когда/i.test(s.heading));
   const restSections = others.filter((s) => s !== doneCriteria);
 
-  app.innerHTML = `<header class="top">${navHtml()}</header>
+  app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>${esc(d.title)}</h1>${accountHtml()}
     <div class="meta">
       <span>· ${esc(kindLabel(d.date, d.format))}</span>
@@ -793,7 +805,7 @@ function monthTitle(m: string): string {
 }
 
 async function renderCal(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка календаря…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка календаря…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   // Отметки прогресса — необязательны: сетка строится по плану из /api/days,
@@ -816,7 +828,7 @@ async function renderCal(): Promise<void> {
       return;
     }
     const msg = apiErrorText(e);
-    app.innerHTML = `<header class="top">${navHtml()}</header>
+    app.innerHTML = `<header class="top">${topHtml()}</header>
       <h1>Календарь</h1>
       <p>Нет связи с API: ${esc(msg)}</p>
       <button class="listitem" id="retry"><div class="d">Попробовать снова</div></button>
@@ -852,7 +864,7 @@ async function renderCal(): Promise<void> {
   const weekId = cur?.week ?? "";
   const list = daysCache.filter((d) => d.week === weekId);
   const weekLabel = weekId === "prestart" ? "Подготовка" : weekId.replace("week_", "").replace(/_/g, " ");
-  app.innerHTML = `<header class="top">${navHtml()}</header>
+  app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>Календарь</h1>${accountHtml()}
     ${activityWarn ? `<div class="cue">Отметки прогресса не загрузились (${esc(activityWarn)}) — сетка по плану, галочки подтянутся позже.
       <div class="subchips"><button class="subchip" id="actretry">Обновить отметки</button></div></div>` : ""}
@@ -1028,7 +1040,7 @@ function attemptsHtml(list: RouteAttempt[]): string {
 }
 
 async function renderRoutes(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка трасс…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка трасс…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   try {
@@ -1042,7 +1054,7 @@ async function renderRoutes(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
+    app.innerHTML = `<header class="top">${topHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
     wireTabs();
     return;
   }
@@ -1053,7 +1065,7 @@ function renderRoutesView(): void {
   const gym = gymsCache.find((g) => g.id === selGym);
   const canScan = typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector !== "undefined";
   const card = openRouteId ? cardCache.get(openRouteId) : undefined;
-  app.innerHTML = `<header class="top">${navHtml()}</header>
+  app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>Трассы</h1>${accountHtml()}
     <div class="subchips">${gymsCache.map((g) =>
       `<button class="subchip ${g.id === selGym ? "active" : ""}" data-gym="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>
@@ -1506,7 +1518,7 @@ async function doReco(): Promise<void> {
 // ---------- Прогресс: heatmap как на Гитхабе ----------
 
 async function renderProg(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка прогресса…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка прогресса…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   try {
@@ -1517,7 +1529,7 @@ async function renderProg(): Promise<void> {
       return;
     }
     const msg = apiErrorText(e);
-    app.innerHTML = `<header class="top">${navHtml()}</header>
+    app.innerHTML = `<header class="top">${topHtml()}</header>
       <h1>Прогресс</h1>
       <p>Нет связи с API: ${esc(msg)}</p>
       <button class="listitem" id="retry"><div class="d">Попробовать снова</div>
@@ -1583,7 +1595,7 @@ async function renderProg(): Promise<void> {
     }</div>`;
   }).join("");
 
-  app.innerHTML = `<header class="top">${navHtml()}</header>
+  app.innerHTML = `<header class="top">${topHtml()}</header>
     <h1>Прогресс</h1>${accountHtml()}
     <div class="meta"><span>★ ${full} из ${req} дней</span><span>· ~${mins} мин в зале и дома</span></div>
     <div class="heatwrap"><div class="heat">${heat}</div></div>
@@ -1609,7 +1621,7 @@ function matchedTerms(text: string): GlossaryTerm[] {
 }
 
 async function renderLib(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка библиотеки…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка библиотеки…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   try {
@@ -1623,7 +1635,7 @@ async function renderLib(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
+    app.innerHTML = `<header class="top">${topHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
     wireTabs();
     return;
   }
@@ -1662,7 +1674,7 @@ async function renderLib(): Promise<void> {
       body = `<p class="meta">Нет связи с API.</p>`;
     }
   }
-  app.innerHTML = `<header class="top">${navHtml()}</header><h1>Библиотека</h1>${accountHtml()}
+  app.innerHTML = `<header class="top">${topHtml()}</header><h1>Библиотека</h1>${accountHtml()}
     <div class="subchips">${sub("ex", "Упражнения")}${sub("dict", "Словарь")}${sub("vids", "Видео")}${sub("shop", "Покупки")}</div>
     <div id="libbody">${body}</div>${tabsHtml()}`;
   wireTabs();
@@ -1733,7 +1745,7 @@ async function renderDoc(): Promise<void> {
     render();
     return;
   }
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   try {
@@ -1742,7 +1754,7 @@ async function renderDoc(): Promise<void> {
       doc = await api.doc(id);
       docCache.set(id, doc);
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header>
+    app.innerHTML = `<header class="top">${topHtml()}</header>
       <button class="subchip" id="docback">‹ Назад</button>
       <h1>${esc(doc.title)}</h1>
       ${md(doc.body)}
@@ -1758,7 +1770,7 @@ async function renderDoc(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header>
+    app.innerHTML = `<header class="top">${topHtml()}</header>
       <button class="subchip" id="docback">‹ Назад</button>
       <h1>Документ</h1>
       <p>Не открылось: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
@@ -1782,12 +1794,12 @@ if (typeof document !== "undefined") {
 }
 
 async function renderSafe(): Promise<void> {
-  app.innerHTML = `<header class="top">${navHtml()}</header><p>Загрузка…</p>${tabsHtml()}`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка…</p>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   try {
     const doc = await api.doc("02_SAFETY_AND_AUTOREGULATION");
-    app.innerHTML = `<header class="top">${navHtml()}</header><h1>${esc(doc.title)}</h1>${accountHtml()}
+    app.innerHTML = `<header class="top">${topHtml()}</header><h1>${esc(doc.title)}</h1>${accountHtml()}
       <div class="safety">Назначения физиотерапевта всегда важнее плана.</div>
       ${md(doc.body)}${tabsHtml()}`;
     wireTabs();
@@ -1797,7 +1809,7 @@ async function renderSafe(): Promise<void> {
       renderLogin();
       return;
     }
-    app.innerHTML = `<header class="top">${navHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
+    app.innerHTML = `<header class="top">${topHtml()}</header><p>Нет связи с API: ${esc(apiErrorText(e))}</p>${tabsHtml()}`;
     wireTabs();
   }
 }

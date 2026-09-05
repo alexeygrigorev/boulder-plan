@@ -295,18 +295,98 @@ nav.tabs {
 }
 
 nav.tabs button {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 58px;
   border: 0;
   background: none;
   border-radius: 0;
-  padding: 12px 4px;
-  font-size: 13px;
+  padding: 7px 2px 8px;
   color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+nav.tabs button .ti {
+  font-size: 20px;
+  line-height: 1.2;
+  filter: grayscale(0.6);
+}
+
+nav.tabs button .tl {
+  font-size: 11px;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 nav.tabs button.active {
   color: var(--accent);
   font-weight: 700;
+}
+
+nav.tabs button.active .ti {
+  filter: none;
+}
+
+nav.tabs button.active .tl {
+  font-weight: 700;
+}
+
+/* Компактная бренд-шапка для вкладок без переключения дней */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blogo {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.bname {
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.1px;
+}
+
+.datechip {
+  margin-left: auto;
+  border-radius: 99px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  min-height: 44px;
+}
+
+/* Переключатель дней: компактнее, цели ≥44px */
+.dateline button {
+  min-height: 44px;
+}
+
+#datebtn {
+  font-size: 16px;
+}
+
+/* Видимый фокус для клавиатуры и доступность */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #5a4a15;
 }
 
 .listitem {
