@@ -883,10 +883,12 @@ async function renderCal(): Promise<void> {
     <h3>Неделя: ${esc(weekLabel)}</h3>
     ${list.map((d) => {
       const a = activityByDate.get(d.date);
-      const mark = a && a.requiredTotal > 0 && a.done >= a.requiredTotal ? "✓ " : "";
-      return `<button class="listitem" data-date="${d.date}">
-        <div class="d">${mark}${esc(d.date)} · ${esc(d.title.replace(/^.*?·\s*/, ""))}</div>
-        <div class="s">${esc(d.format ?? "")}${a && a.requiredMinutes ? ` · ~${a.requiredMinutes} мин` : ""}${a ? ` · ${a.done}/${a.requiredTotal}` : ""}</div>
+      const doneDay = !!a && a.requiredTotal > 0 && a.done >= a.requiredTotal;
+      const mark = doneDay ? "✓ " : "";
+      const isToday = d.date === todayIso();
+      return `<button class="listitem${isToday ? " today" : ""}" data-date="${d.date}">
+        <div class="d">${mark}${esc(d.title.replace(/^.*?·\s*/, ""))}${isToday ? " · сегодня" : ""}</div>
+        <div class="s">${esc(d.format ?? "Свободный день")}${a && a.requiredMinutes ? ` · ~${a.requiredMinutes} мин` : ""}${a && a.requiredTotal > 0 ? ` · готово ${a.done} из ${a.requiredTotal}` : ""}</div>
       </button>`;
     }).join("")}
     ${tabsHtml()}`;

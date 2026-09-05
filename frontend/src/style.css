@@ -483,6 +483,10 @@ summary:focus-visible {
   font-size: 13px;
 }
 
+.listitem.today {
+  border-color: var(--accent);
+}
+
 .safety {
   background: #2a1215;
   border: 1px solid #6b2f36;
