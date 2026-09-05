@@ -6,6 +6,7 @@
   "workspaces": ["backend", "frontend", "tools"],
   "scripts": {
     "ingest": "node --strip-types tools/ingest.ts",
+    "md2yaml": "node --strip-types tools/md2yaml.ts",
     "dev": "npm --workspace backend run dev",
     "build": "npm --workspace backend run build && npm --workspace frontend run build",
     "test": "npm --workspace backend run test"
