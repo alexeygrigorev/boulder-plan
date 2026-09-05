@@ -1610,7 +1610,7 @@ async function renderProg(): Promise<void> {
     <h1>Прогресс</h1>${accountHtml()}
     <div class="statcards">
       <div class="statcard"><span class="sval">★ ${full}/${req}</span><span class="slab">дней закрыто</span></div>
-      <div class="statcard"><span class="sval">⏱ ~${mins}</span><span class="slab">минут заняло</span></div>
+      <div class="statcard"><span class="sval">⏱ ~${mins}</span><span class="slab">минут всего</span></div>
       <div class="statcard"><span class="sval">🔥 ${streak}</span><span class="slab">серия дней</span></div>
     </div>
     <div class="heatwrap"><div class="heat">${heat}</div></div>
