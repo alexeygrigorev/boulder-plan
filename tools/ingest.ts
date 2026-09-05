@@ -9,20 +9,22 @@ import { readdirSync, readFileSync, statSync, mkdirSync, writeFileSync, existsSy
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { parseDayYaml } from "./yaml.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = join(ROOT, "content", "plan.json");
+const DAYS_DIR = join(ROOT, "days");
 const ZIP = process.env.PLAN_ZIP ?? "/tmp/e95eb7a0-c641-4f90-b074-bafda44fc6c5.zip";
 const DIR_HINTS = [
   process.env.PLAN_DIR ?? "",
+  join(ROOT, "plan"),
   "/data/tmp/opencode/plan-inspect/bouldering_plan_2026-09_to_2027-03",
 ].filter(Boolean);
 
-const RU_MONTHS: Record<string, string> = {
-  "января": "01", "февраля": "02", "марта": "03", "апреля": "04",
-  "мая": "05", "июня": "06", "июля": "07", "августа": "08",
-  "сентября": "09", "октября": "10", "ноября": "11", "декабря": "12",
-};
+function toMin(t: string): number {
+  const [m, s] = t.split(":").map(Number);
+  return m * 60 + s;
+}
 
 function findPlanDir(): string {
   for (const d of DIR_HINTS) {
@@ -50,34 +52,10 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-function ruDateToIso(s: string): string | null {
-  const m = s.match(/(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})/);
-  if (!m) return null;
-  return `${m[3]}-${RU_MONTHS[m[2]]}-${m[1].padStart(2, "0")}`;
-}
-
-function parseMeta(md: string) {
-  const get = (re: RegExp) => md.match(re)?.[1]?.trim() ?? null;
-  return {
-    format: get(/\*\*Формат:\*\*\s*(.+)/),
-    theme: get(/\*\*Тема недели:\*\*\s*(.+)/) ?? get(/\*\*Тема:\*\*\s*(.+)/),
-    cue: get(/\*\*Главный cue:\*\*\s*(.+)/),
-    requiredMinutes: (() => {
-      const m = md.match(/\*\*Обязательное время сегодня:\*\*\s*примерно\s+(\d+)/);
-      return m ? Number(m[1]) : 0;
-    })(),
-  };
-}
-
 interface Block {
   id: string; start: string; end: string; minutes: number;
   kind: string; requirement: string; title: string; text: string;
   intensity: string | null; caution: string | null; section: string;
-}
-
-function toMin(t: string): number {
-  const [m, s] = t.split(":").map(Number);
-  return m * 60 + s;
 }
 
 // Чистка «не делай»: запретительные блоки/секции в данные не попадают.
@@ -89,48 +67,18 @@ const DROP_ITEM = /^-\s+\[ \]\s*не было /i;
 
 let droppedBlocks = 0, droppedSections = 0, droppedItems = 0;
 
-function parseBlocks(md: string): Block[] {
-  const lines = md.split("\n");
-  const blocks: Block[] = [];
-  let section = "";
-  let i = 0, n = 0;
-  for (const line of lines) {
-    const h = line.match(/^##\s+(.+)/);
-    if (h) { section = h[1].trim(); continue; }
-    const m = line.match(/^- \[ \] \*\*(\d{1,3}:\d{2})\s*[–—-]\s*(\d{1,3}:\d{2})\s*·\s*(.+?)\s*·\s*(обязательно|опционально|по назначению физиотерапевта|выбрать один сценарий)\*\*\s*—\s*(.*)/);
-    if (m) {
-      const [, start, end, kind, requirement, rest] = m;
-      if (DROP_BLOCK_KIND.test(kind.trim()) || DROP_BLOCK_REQ.test(requirement.trim())) { droppedBlocks++; continue; }
-      // kind вида "Самопроверка" а title после? формат: "время · kind · requirement — text"
-      // но часть строк: "время · kind · requirement" где kind="Техника", а заголовка нет — берём kind как title
-      const parts = kind.split("·").map((s) => s.trim());
-      void parts;
-      const chunk: string[] = [];
-      // подклейка интенсивности; «Осторожность» не берём — только позитивные инструкции
-      let j = i + 1;
-      let intensity: string | null = null;
-      const caution = null;
-      while (j < lines.length) {
-        const nl = lines[j];
-        if (/^\s*-\s*Интенсивность:/.test(nl)) intensity = nl.replace(/^\s*-\s*Интенсивность:\s*/, "").trim();
-        else if (/^\s*-\s*Осторожность:/.test(nl)) { /* пропускаем */ }
-        else break;
-        j++;
-      }
-      void chunk;
-      n++;
-      blocks.push({
-        id: `b${String(n).padStart(2, "0")}`,
-        start, end,
-        minutes: Math.max(0, Math.round((toMin(end) - toMin(start)) / 60)),
-        kind: kind.trim(), requirement: requirement.trim(),
-        title: kind.trim(), text: rest.trim(),
-        intensity, caution, section,
-      });
-    }
-    i++;
-  }
-  return blocks;
+// Мета недели из md-обзора (формат/тема/cue/время) — недели пока живут в md.
+function parseMeta(md: string) {
+  const get = (re: RegExp) => md.match(re)?.[1]?.trim() ?? null;
+  return {
+    format: get(/\*\*Формат:\*\*\s*(.+)/),
+    theme: get(/\*\*Тема недели:\*\*\s*(.+)/) ?? get(/\*\*Тема:\*\*\s*(.+)/),
+    cue: get(/\*\*Главный cue:\*\*\s*(.+)/),
+    requiredMinutes: (() => {
+      const m = md.match(/\*\*Обязательное время сегодня:\*\*\s*примерно\s+(\d+)/);
+      return m ? Number(m[1]) : 0;
+    })(),
+  };
 }
 
 function parseSections(md: string): { heading: string; body: string }[] {
@@ -181,27 +129,94 @@ const planDir = findPlanDir();
 console.log("plan dir:", planDir);
 const files = walk(planDir);
 console.log("md files:", files.length);
+console.log("day files: days/*.yaml");
 
-const dayFiles = files.filter((f) =>
-  /PRESTART\/\d+_.*\.md$/.test(f) || /week_\d+.*\/0\d_[A-Z]+\.md$/.test(f));
-console.log("day files:", dayFiles.length);
+// Дни читаем из days/*.yaml (tools/md2yaml.ts) — md-парсер ниже оставлен
+// для истории, источником дней больше не является.
+interface YamlDayBlock {
+  id: unknown; start: unknown; end: unknown; kind: unknown;
+  requirement: unknown; section: unknown; intensity: unknown; text: unknown;
+}
 
-const days = dayFiles.map((f) => {
-  const md = readFileSync(f, "utf8");
-  const title = (md.split("\n")[0] ?? "").replace(/^#\s*/, "").trim();
-  const fileIso = basename(f).match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
-  const iso = fileIso ?? ruDateToIso(title) ?? "0000-00-00";
-  const rel = f.slice(planDir.length + 1);
-  const milestone = rel.split("/")[0] ?? "";
-  const week = rel.includes("week_") ? (rel.match(/week_\d+_\d{4}-\d{2}-\d{2}/)?.[0] ?? "") : "prestart";
-  const meta = parseMeta(md);
-  return {
-    date: iso, title, file: rel, milestone, week,
-    ...meta,
-    blocks: parseBlocks(md),
-    sections: parseSections(md),
-  };
-}).sort((a, b) => a.date.localeCompare(b.date));
+const REQ_SET = new Set(["обязательно", "опционально", "по назначению физиотерапевта", "выбрать один сценарий"]);
+
+function str(v: unknown, what: string, name: string): string {
+  if (typeof v !== "string" || !v) throw new Error(`${name}: поле ${what} должно быть непустой строкой`);
+  return v;
+}
+
+function strOrNull(v: unknown, what: string, name: string): string | null {
+  if (v === null) return null;
+  return str(v, what, name);
+}
+
+function num(v: unknown, what: string, name: string): number {
+  if (typeof v !== "number" || !Number.isInteger(v)) throw new Error(`${name}: поле ${what} должно быть целым числом`);
+  return v;
+}
+
+const days = readdirSync(DAYS_DIR)
+  .filter((f) => /^\d{4}-\d{2}-\d{2}\.yaml$/.test(f))
+  .sort()
+  .map((f) => {
+    const name = `days/${f}`;
+    const doc = parseDayYaml(readFileSync(join(DAYS_DIR, f), "utf8"), name) as unknown as Record<string, unknown>;
+    const date = str(doc.date, "date", name);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${name}: bad date`);
+    const rawBlocks = doc.blocks;
+    if (!Array.isArray(rawBlocks) || !rawBlocks.length) throw new Error(`${name}: нет blocks`);
+    const seen = new Set<string>();
+    const blocks: Block[] = (rawBlocks as YamlDayBlock[]).map((yb) => {
+      const id = str(yb.id, "blocks[].id", name);
+      if (!/^b\d+$/.test(id) || seen.has(id)) throw new Error(`${name}: плохой/повторный id ${id}`);
+      seen.add(id);
+      const start = str(yb.start, "blocks[].start", name);
+      const end = str(yb.end, "blocks[].end", name);
+      if (!/^\d{1,3}:\d{2}$/.test(start) || !/^\d{1,3}:\d{2}$/.test(end)) {
+        throw new Error(`${name}: плохое время у ${id}`);
+      }
+      const requirement = str(yb.requirement, "blocks[].requirement", name);
+      if (!REQ_SET.has(requirement)) throw new Error(`${name}: неизвестный requirement у ${id}: ${requirement}`);
+      const kind = str(yb.kind, "blocks[].kind", name);
+      // Страховка: запретительные блоки в yaml попадать не должны (чистит md2yaml).
+      if (DROP_BLOCK_KIND.test(kind.trim()) || DROP_BLOCK_REQ.test(requirement.trim())) {
+        droppedBlocks++;
+        throw new Error(`${name}: запретительный блок ${id} (${kind}) — убери из yaml`);
+      }
+      return {
+        id, start, end,
+        minutes: Math.max(0, Math.round((toMin(end) - toMin(start)) / 60)),
+        kind, requirement,
+        title: kind,
+        text: str(yb.text, "blocks[].text", name),
+        intensity: strOrNull(yb.intensity, "blocks[].intensity", name),
+        caution: null,
+        section: str(yb.section, "blocks[].section", name),
+      };
+    });
+    const rawSections = doc.sections;
+    if (!Array.isArray(rawSections)) throw new Error(`${name}: нет sections`);
+    const sections = (rawSections as { heading: unknown; body: unknown }[]).map((s) => {
+      const heading = str(s.heading, "sections[].heading", name);
+      if (DROP_SECTION.test(heading)) {
+        droppedSections++;
+        throw new Error(`${name}: запретительная секция ${heading} — убери из yaml`);
+      }
+      return { heading, body: str(s.body, "sections[].body", name) };
+    });
+    return {
+      date,
+      title: str(doc.title, "title", name),
+      file: name,
+      milestone: str(doc.milestone, "milestone", name),
+      week: str(doc.week, "week", name),
+      format: strOrNull(doc.format, "format", name),
+      theme: strOrNull(doc.theme, "theme", name),
+      cue: strOrNull(doc.cue, "cue", name),
+      requiredMinutes: num(doc.requiredMinutes, "requiredMinutes", name),
+      blocks, sections,
+    };
+  });
 
 const weekFiles = files.filter((f) => f.endsWith("00_WEEK_OVERVIEW.md"));
 const weeks = weekFiles.map((f) => {
@@ -237,7 +252,9 @@ function parseResources(md: string): { id: string; title: string; url: string; t
     if (cells.length < 6 || !/^R\d\d$/.test(cells[1] ?? "")) continue;
     const link = cells[2]?.match(/\[([^\]]+)\]\((https?:[^)]+)\)/);
     if (!link) continue;
-    out.push({ id: cells[1], title: link[1], url: link[2], type: cells[3] ?? "", minutes: cells[4] ?? "", task: cells[5] ?? "" });
+    // Та же чистка «не делай», что в днях: задача ресурса — только действие.
+    const task = (cells[5] ?? "").replace(/;?\s*full crimp не тренируется на фингерборде\.?/i, "").trim();
+    out.push({ id: cells[1], title: link[1], url: link[2], type: cells[3] ?? "", minutes: cells[4] ?? "", task });
   }
   return out;
 }

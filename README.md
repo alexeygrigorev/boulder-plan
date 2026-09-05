@@ -11,9 +11,17 @@
 
 ```
 content/        # plan.json + tools/ingest.ts (парсер исходных .md)
+days/           # дни плана: один YAML на день (источник чек-листов дня)
 backend/        # Lambda handlers + local.ts (локальный сервер) + storage adapter
 frontend/       # Vite + TS, экраны: Сегодня / Неделя / Библиотека / Прогресс
 infra/          # SAM template: Lambda + HttpApi + DynamoDB (деплой позже)
+```
+
+Дни правятся в `days/YYYY-MM-DD.yaml` (только действия, без «не делай»),
+недели/библиотека/документы — в `plan/*.md`. После правок:
+
+```bash
+npm run ingest   # days/*.yaml + plan/*.md -> content/plan.json
 ```
 
 ## Локальный запуск (без AWS)
