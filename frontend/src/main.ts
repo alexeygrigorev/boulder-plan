@@ -346,9 +346,9 @@ function topHtml(): string {
 }
 
 function tabsHtml(): string {
-  const t = (id: Tab, label: string, icon: string) =>
-    `<button data-tab="${id}" class="${tab === id ? "active" : ""}" aria-label="${label}"><span class="ti" aria-hidden="true">${icon}</span><span class="tl">${label}</span></button>`;
-  return `<nav class="tabs">${t("today", "Сегодня", "🏠")}${t("cal", "Календарь", "🗓️")}${t("routes", "Трассы", "🧗")}${t("prog", "Прогресс", "📊")}${t("lib", "Библиотека", "📚")}${t("safe", "Безопасность", "⛑️")}</nav>`;
+  const t = (id: Tab, label: string, icon: string, aria?: string) =>
+    `<button data-tab="${id}" class="${tab === id ? "active" : ""}" aria-label="${aria ?? label}"><span class="ti" aria-hidden="true">${icon}</span><span class="tl">${label}</span></button>`;
+  return `<nav class="tabs">${t("today", "Сегодня", "🏠")}${t("cal", "Календарь", "🗓️")}${t("routes", "Трассы", "🧗")}${t("prog", "Прогресс", "📊")}${t("lib", "Библиотека", "📚")}${t("safe", "Здоровье", "⛑️", "Безопасность")}</nav>`;
 }
 
 function renderLogin(error = ""): void {
@@ -1690,7 +1690,7 @@ async function renderLib(): Promise<void> {
     }
   }
   app.innerHTML = `<header class="top">${topHtml()}</header><h1>Библиотека</h1>${accountHtml()}
-    <div class="subchips">${sub("ex", "Упражнения")}${sub("dict", "Словарь")}${sub("vids", "Видео")}${sub("shop", "Покупки")}</div>
+    <div class="subchips scrollx">${sub("ex", "Упражнения")}${sub("dict", "Словарь")}${sub("vids", "Видео")}${sub("shop", "Покупки")}</div>
     <div id="libbody">${body}</div>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();

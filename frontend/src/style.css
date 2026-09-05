@@ -535,6 +535,26 @@ i.sw.fRec { background: #4fd6c4; }
 .subchips { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .subchip { border-radius: 99px; padding: 8px 14px; font-size: 14px; }
 .subchip.active { background: var(--accent); border-color: var(--accent); color: #221a05; font-weight: 700; }
+
+/* Длинные ряды чипсов — горизонтальный скролл вместо переноса */
+.subchips.scrollx {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.subchips.scrollx::-webkit-scrollbar {
+  display: none;
+}
+
+.subchips.scrollx .subchip {
+  flex: 0 0 auto;
+}
 .acc { background: var(--card); border: 1px solid #2c343d; border-radius: var(--radius); padding: 10px 12px; margin: -4px 0 8px; }
 .accbody p, .coach p { margin: 6px 0; }
 .accbody ul, .coach ul { padding-left: 20px; margin: 6px 0; }
