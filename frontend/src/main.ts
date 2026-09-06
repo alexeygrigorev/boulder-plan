@@ -21,6 +21,8 @@ let note = "";
 let metrics: DayMetrics = {};
 let blockNotes: Record<string, string> = {};
 let openNote: string | null = null;
+let expandedBlock: string | null = null;
+let sessionMode = false;
 let daysCache: { date: string; title: string; format: string | null; week: string }[] = [];
 let saveTimer: number | undefined;
 const timers = new Map<string, { left: number; total: number; on: boolean; int?: number }>();
@@ -254,9 +256,14 @@ function levelOf(a: ActivityDay | undefined, today: string): string {
 }
 
 async function loadDay(): Promise<void> {
+  const requestedDate = date;
+  expandedBlock = null;
+  sessionMode = false;
   app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка…</p>`;
   try {
-    day = await api.plan(date);
+    const loaded = await api.plan(requestedDate);
+    if (requestedDate !== date || tab !== "today") return;
+    day = loaded;
   } catch (e) {
     if (needLogin(e)) {
       renderLogin();
@@ -271,7 +278,8 @@ async function loadDay(): Promise<void> {
     return;
   }
   try {
-    const p = await api.progress(date);
+    const p = await api.progress(requestedDate);
+    if (requestedDate !== date || tab !== "today") return;
     const local = readLocal(date);
     // Не затираем локальную правку, которая ещё не долетела до сервера:
     // раньше свежий ответ сервера молча убивал заметку/метрики из localStorage.
@@ -310,7 +318,7 @@ async function loadDay(): Promise<void> {
       if (!pendingSnap) saveState = "saved";
     }
   }
-  render();
+  if (requestedDate === date && tab === "today") render();
 }
 
 function fmtDateRu(iso: string): string {
@@ -544,40 +552,58 @@ function renderDay(): void {
     return;
   }
   const d = day;
-  const done = d.blocks.filter((b) => checks[b.id]).length;
-  const pct = d.blocks.length ? Math.round((done / d.blocks.length) * 100) : 0;
+  const required = d.blocks.filter((b) => !/опционально|по желанию|relaxed/i.test(b.requirement));
+  const done = required.filter((b) => checks[b.id]).length;
+  const pct = required.length ? Math.round((done / required.length) * 100) : 100;
+  const next = required.find((b) => !checks[b.id]);
+  const remaining = required.filter((b) => !checks[b.id]).reduce((n, b) => n + b.minutes, 0);
   const stopRules = d.sections.find((s) => /закончить раньше/i.test(s.heading));
   const others = d.sections.filter((s) => !/чек-лист/i.test(s.heading) && s !== stopRules);
   const isWorkout = (d.format ?? "").startsWith("Тренировка");
   const doneCriteria = others.find((s) => /готово, когда/i.test(s.heading));
   const restSections = others.filter((s) => s !== doneCriteria);
+  const title = d.theme || d.format || "Время для себя";
+  const active = expandedBlock ?? next?.id;
 
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <div class="herochips">
-      ${d.format
-        ? `<span class="hchip ${fmtClass(d.format)}">${esc(d.format)}</span>`
-        : `<span class="hchip">Свободный день</span>`}
-      ${d.requiredMinutes ? `<span class="hchip ghost">⏱ ~${d.requiredMinutes} мин</span>` : ""}
-      ${d.theme ? `<span class="hchip ghost">🎯 ${esc(d.theme)}</span>` : ""}
-    </div>
-    <h1 class="daytitle">${esc(d.title)}</h1>${accountHtml()}
-    ${d.cue ? `<div class="cue focus"><span class="cueicon" aria-hidden="true">💡</span><div><strong>Фокус дня</strong><br>${esc(d.cue)}</div></div>` : ""}
-    <h3>Самочувствие</h3>
-    <p class="hint">0 — ничего не беспокоит, 10 — сильно болит · энергия 1–5</p>
-    <div class="meters" id="meters">${metersHtml()}</div>
-    <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Прогресс дня"><div style="width:${pct}%"></div></div>
-    <div class="proglabel">Готово ${done} из ${d.blocks.length} · ${pct}%</div>
-    <div id="blocks">${d.blocks.map((b) => blockHtml(b, isWorkout)).join("")}</div>
-    <div id="weekres"><p class="meta">Загрузка материалов недели…</p></div>
-    ${stopRules ? `<div class="safety"><strong>Когда закончить раньше</strong>${md(stopRules.body)}</div>` : ""}
+    <div class="page-intro"><div><p class="eyebrow">${date === todayIso() ? "МОЙ ДЕНЬ" : "ПЛАН ДНЯ"} / ${esc(longDate(date))}</p>
+    <h1 class="daytitle">${esc(title)}</h1><p class="page-description">${esc(d.format ?? "Свободный день")} · ${d.requiredMinutes ? `около ${d.requiredMinutes} минут` : "в своём темпе"}</p></div>
+    <span class="intro-mark">${icon(isWorkout ? "mountain" : "today")}</span></div>${accountHtml()}
+    <div id="weekstrip" class="weekstrip" aria-label="Дни недели"></div>
+    <div class="day-layout"><div class="day-main">
+    <section class="session-hero ${!next ? "complete" : ""}">
+      <div class="hero-top"><span class="eyebrow">${next ? (done ? "ПРОДОЛЖАЕМ" : "ВСЁ НАЧИНАЕТСЯ С ОДНОГО ШАГА") : "НА СЕГОДНЯ ВСЁ"}</span><span>${done} / ${required.length}</span></div>
+      <h2>${next ? esc(next.kind) : "Хорошая работа."}</h2>
+      <p>${next ? `${remaining} мин обязательных шагов осталось. Можно начать прямо сейчас.` : "Все обязательные шаги отмечены. Запиши, что получилось сегодня."}</p>
+      <div class="hero-bottom"><button class="primary" id="session-start">${next ? (sessionMode ? "К текущему шагу" : done ? "Продолжить занятие" : "Начать занятие") : "Записать итог"}${icon("arrow")}</button><span>${icon("clock")} ${d.requiredMinutes} мин по плану</span></div>
+      <div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Обязательные шаги"><div style="width:${pct}%"></div></div>
+      <div class="proglabel">${done} из ${required.length} обязательных шагов выполнено</div>
+    </section>
+    ${d.cue ? `<div class="focus-note"><span>${icon("mountain")}</span><div><span class="eyebrow">ФОКУС ДНЯ</span><p>${esc(d.cue)}</p></div></div>` : ""}
+    <div class="section-heading"><h3>Твой маршрут на сегодня</h3><span>${d.blocks.length} шагов</span></div>
+    <div id="blocks">${d.blocks.map((b) => blockHtml(b, isWorkout, active === b.id)).join("")}</div>
     ${doneCriteria ? doneCriteriaHtml(doneCriteria) : ""}
+    <section class="journal"><label for="note"><h3>Что заберёшь из этого дня?</h3></label><p class="hint">Одно наблюдение, маленькая победа или идея на следующий раз.</p>
+    <textarea class="note" id="note" placeholder="Сегодня получилось…">${esc(note)}</textarea>
+    <div class="meta" id="savestate" role="status" aria-live="polite"></div></section>
+    </div><aside class="day-aside">
+    <section class="wellbeing"><div class="section-heading"><h3>Как ты себя чувствуешь?</h3>${icon("safe")}</div>
+    <p class="hint">Боль: 0–10 · энергия: 1–5</p><div class="meters" id="meters">${metersHtml()}</div>
+    <button class="text-button" data-tab="safe">Самочувствие и правила остановки ${icon("arrow")}</button></section>
+    ${isWorkout ? `<button class="route-shortcut" data-tab="routes">${icon("routes")}<span><strong>Уже у стены?</strong><small>Открой трассу и запиши попытку</small></span>${icon("arrow")}</button>` : ""}
+    ${stopRules ? `<details class="section safety"><summary>Когда закончить раньше</summary>${md(stopRules.body)}</details>` : ""}
+    <details class="section"><summary>Материалы и план недели</summary><div id="weekres"><p class="meta">Загрузка материалов недели…</p></div></details>
     ${restSections.map((s) => `<details class="section"><summary>${esc(s.heading)}</summary>${md(s.body)}</details>`).join("")}
-    ${isWorkout ? `<div id="dayroutes"><p class="meta">Загрузка трасс…</p></div>` : ""}
-    <h3>Заметка дня</h3>
-    <textarea class="note" id="note" placeholder="Техника одной фразой, плечо/пальцы/колено 0–10…">${esc(note)}</textarea>
-    <div class="meta" id="savestate"></div>
-    ${tabsHtml()}`;
-
+    ${isWorkout ? `<details class="section"><summary>Трассы этого дня</summary><div id="dayroutes"><p class="meta">Загрузка трасс…</p></div></details>` : ""}
+    </aside></div>${tabsHtml()}`;
+  document.getElementById("session-start")!.onclick = () => {
+    if (!next) { document.getElementById("note")!.focus(); return; }
+    sessionMode = true;
+    expandedBlock = next.id;
+    renderDay();
+    document.getElementById(`block-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  void paintWeekStrip(d.date);
   wireDayNav();
   wireTabs();
   wireBlocks();
@@ -589,7 +615,7 @@ function renderDay(): void {
   if (d.week && d.week !== "prestart") {
     weekResourcesHtml(d.week).then(async (cards) => {
       const box = document.getElementById("weekres");
-      if (!box || !weekCache.get(d.week)) return;
+      if (!box || date !== d.date || !weekCache.get(d.week)) return;
       const w = weekCache.get(d.week)!;
       box.innerHTML = cards + weekSectionsHtml(w);
     }).catch(() => {
@@ -600,6 +626,24 @@ function renderDay(): void {
     const box = document.getElementById("weekres");
     if (box) box.innerHTML = "";
   }
+}
+
+async function paintWeekStrip(snapshot: string): Promise<void> {
+  try {
+    if (!daysCache.length) daysCache = (await api.days()).days;
+    const box = document.getElementById("weekstrip");
+    if (!box || snapshot !== date) return;
+    const offset = (new Date(`${snapshot}T12:00:00`).getDay() + 6) % 7;
+    const start = shiftDate(snapshot, -offset);
+    box.innerHTML = Array.from({ length: 7 }, (_, i) => {
+      const iso = shiftDate(start, i);
+      const item = daysCache.find((d) => d.date === iso);
+      return `<button data-weekdate="${iso}" ${item ? "" : "disabled"} class="week-day ${iso === snapshot ? "selected" : ""}" ${iso === snapshot ? 'aria-current="date"' : ''} aria-label="${esc(longDate(iso))}: ${esc(item?.format ?? "Нет плана")}"><span>${["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"][i]}</span><strong>${Number(iso.slice(-2))}</strong><i class="day-dot ${fmtClass(item?.format ?? null)}"></i></button>`;
+    }).join("");
+    box.querySelectorAll<HTMLButtonElement>("[data-weekdate]").forEach((b) => {
+      b.onclick = () => { flushSave(); date = b.dataset.weekdate!; void loadDay(); };
+    });
+  } catch { /* Day remains usable without the index. */ }
 }
 
 function wireDayNav(): void {
@@ -630,8 +674,20 @@ function wireBlocks(): void {
     b.onclick = () => {
       const id = b.dataset.check!;
       checks[id] = !checks[id];
+      if (checks[id] && expandedBlock === id) expandedBlock = null;
+      const timer = timers.get(`${date}:${id}`);
+      if (checks[id] && timer?.on) { timer.on = false; window.clearInterval(timer.int); }
       scheduleSave();
       renderDay();
+      const target = sessionMode ? day?.blocks.find((b) => !checks[b.id] && !/опционально|по желанию|relaxed/i.test(b.requirement))?.id : id;
+      if (target) app.querySelector<HTMLButtonElement>(`[data-check="${target}"]`)?.focus({ preventScroll: !sessionMode });
+    };
+  });
+  app.querySelectorAll<HTMLButtonElement>("[data-expand]").forEach((b) => {
+    b.onclick = () => {
+      expandedBlock = b.getAttribute("aria-expanded") === "true" ? "none" : b.dataset.expand!;
+      renderDay();
+      app.querySelector<HTMLButtonElement>(`[data-expand="${b.dataset.expand}"]`)?.focus({ preventScroll: true });
     };
   });
   // Критерии «Готово, когда»: переключаем на месте, <details> не сворачиваем.
@@ -717,15 +773,15 @@ function wireMeters(): void {
   });
 }
 
-function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string {
-  const t = timers.get(b.id);
+function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean, expanded = true): string {
+  const t = timers.get(`${date}:${b.id}`);
   const left = t ? t.left : b.minutes * 60;
   const running = t?.on ?? false;
   // На нетренировочных днях «таймлайн» 00:00–05:00 бессмысленен (это минуты
   // от начала рутины, а не время дня) — показываем длительность.
   const timeChip = showTimeline
-    ? `<span class="time" title="Минуты от начала тренировки">🕐 ${esc(b.start)}–${esc(b.end)}</span>`
-    : b.minutes > 0 ? `<span class="time">⏱ ~${b.minutes} мин</span>` : "";
+    ? `<span class="time">${b.minutes} мин <span class="timeline-offset">· ${esc(b.start)}–${esc(b.end)} от начала</span></span>`
+    : b.minutes > 0 ? `<span class="time">${b.minutes} мин</span>` : "";
   const bn = blockNotes[b.id] ?? "";
   // Заметка — только где план явно просит (маркер 📝 в тексте задачи)
   // или где заметка уже есть.
@@ -734,15 +790,14 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
   const preview = bn.length > 42 ? bn.slice(0, 42) + "…" : bn;
   const isOpt = /опционально|по желанию|relaxed/i.test(b.requirement);
   const on = !!checks[b.id];
-  return `<div class="block ${on ? "done" : ""}">
+  return `<div id="block-${b.id}" class="block ${on ? "done" : ""} ${expanded ? "expanded" : "collapsed"}">
     <div class="row1">
       <button class="check" data-check="${b.id}" aria-label="Отметить блок: ${esc(b.kind)}" aria-pressed="${on}">${on ? "✓" : "○"}</button>
-      <div class="bmain">${timeChip}
-        <span class="kind">${esc(b.kind)}</span>
+      <div class="bmain"><button class="block-disclosure" data-expand="${b.id}" aria-expanded="${expanded}" aria-controls="detail-${b.id}"><span class="kind">${esc(b.kind)}</span><span class="disclosure-arrow">${expanded ? "−" : "+"}</span></button>${timeChip}
         <div class="chips"><span class="chip ${isOpt ? "opt" : "req"}">${isOpt ? "○" : "●"} ${esc(b.requirement)}</span>${b.section !== "Чек-лист по минутам" ? `<span class="chip">${esc(b.section)}</span>` : ""}</div>
       </div>
     </div>
-    <div class="text">${md(b.text)}</div>
+    <div id="detail-${b.id}" ${expanded ? "" : "hidden"}><div class="text">${md(b.text)}</div>
     ${b.intensity || b.caution
       ? `<div class="detail">${b.intensity ? `Нагрузка: ${esc(b.intensity)}.<br>` : ""}${b.caution ? `Осторожно: ${esc(b.caution)}` : ""}</div>`
       : ""}
@@ -753,17 +808,19 @@ function blockHtml(b: PlanDay["blocks"][number], showTimeline: boolean): string 
     <div class="bnote">
       ${wantsNote ? `<button class="notetoggle" data-notetoggle="${b.id}">${bn ? `✎ ${esc(preview)}` : "✎ Заметка…"}</button>` : ""}
       ${noteOpen && wantsNote ? `<textarea class="blocknote" data-blocknote="${b.id}" rows="2" placeholder="Заметка к этой задаче…">${esc(bn)}</textarea>` : ""}
-    </div>
+    </div></div>
   </div>`;
 }
 
 function toggleTimer(id: string): void {
   const block = day?.blocks.find((b) => b.id === id);
   if (!block) return;
-  let st = timers.get(id);
+  const timerDate = date;
+  const timerKey = `${date}:${id}`;
+  let st = timers.get(timerKey);
   if (!st) {
     st = { left: block.minutes * 60, total: block.minutes * 60, on: false };
-    timers.set(id, st);
+    timers.set(timerKey, st);
   }
   if (st.on) {
     st.on = false;
@@ -771,15 +828,16 @@ function toggleTimer(id: string): void {
   } else {
     if (st.left <= 0) st.left = st.total;
     st.on = true;
+    const deadline = Date.now() + st.left * 1000;
     st.int = window.setInterval(() => {
-      st!.left = Math.max(0, st!.left - 1);
+      st!.left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       const el = document.getElementById(`t-${id}`);
-      if (el) el.textContent = fmtLeft(st!.left);
+      if (el && date === timerDate) el.textContent = fmtLeft(st!.left);
       if (st!.left <= 0) {
         st!.on = false;
         if (st!.int) window.clearInterval(st!.int);
         beep();
-        renderDay();
+        if (tab === "today" && date === timerDate) renderDay();
       }
     }, 1000);
   }
