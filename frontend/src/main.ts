@@ -35,6 +35,7 @@ const libEntryCache = new Map<string, { id: string; title: string; body: string;
 let glossaryCache: GlossaryTerm[] = [];
 let resourcesCache: ResourceItem[] = [];
 let dictFilter = "";
+let exerciseFilter = "";
 let weekCache = new Map<string, PlanWeekFull>();
 let activityCache: { from: string; to: string; days: ActivityDay[] } | null = null;
 const activityByDate = new Map<string, ActivityDay>();
@@ -277,6 +278,7 @@ async function loadDay(): Promise<void> {
       <p class="meta">План покрывает 2026-09-03 → 07.03.2027. Открой «Календарь», чтобы выбрать день.</p>
       ${tabsHtml()}`;
     wireTabs();
+    wireDayNavLite();
     return;
   }
   try {
@@ -896,6 +898,7 @@ async function renderCal(): Promise<void> {
     (document.getElementById("retry") as HTMLButtonElement).onclick = () => void renderCal();
     return;
   }
+  if (tab !== "cal") return;
   const [y, mo] = calMonth.split("-").map(Number);
   const first = new Date(y, mo - 1, 1);
   const lead = (first.getDay() + 6) % 7; // понедельник первый
@@ -912,21 +915,21 @@ async function renderCal(): Promise<void> {
     }
     const lvl = levelOf(a, today);
     const star = lvl === "l4" ? `<span class="mstar">★</span>` : "";
-    cells += `<button class="mcell ${lvl} kind-${a.kind} ${iso === date ? "sel" : ""}" data-date="${iso}">
+    cells += `<button class="mcell ${lvl} kind-${a.kind} ${iso === date ? "sel" : ""}" data-date="${iso}" aria-label="${esc(longDate(iso))}: ${esc(a.format ?? "Свободный день")}, ${a.done} из ${a.requiredTotal}" ${iso === date ? 'aria-current="date"' : ""}>
       <span class="mnum">${dd}</span>${star}
       <span class="mdot ${fmtClass(a.format)}">${fmtLetter(a.format)}</span>
       ${a.requiredMinutes ? `<span class="mmin">${a.requiredMinutes}′</span>` : ""}
     </button>`;
   }
-  const cur = daysCache.find((d) => d.date === date);
+  const cur = daysCache.find((d) => d.date === date && d.date.startsWith(calMonth)) ?? daysCache.find((d) => d.date.startsWith(calMonth));
   const weekId = cur?.week ?? "";
   const list = daysCache.filter((d) => d.week === weekId);
   const weekLabel = weekId === "prestart" ? "Подготовка" : weekId.replace("week_", "").replace(/_/g, " ");
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <h1>Календарь</h1>${accountHtml()}
+    <p class="eyebrow">ТВОЙ ПЛАН</p><h1>Неделя за неделей.</h1><p class="page-description">Чередуй нагрузку и восстановление. Выбери день, чтобы открыть занятие.</p>${accountHtml()}
     ${activityWarn ? `<div class="cue">Отметки прогресса не загрузились (${esc(activityWarn)}) — сетка по плану, галочки подтянутся позже.
       <div class="subchips"><button class="subchip" id="actretry">Обновить отметки</button></div></div>` : ""}
-    <div class="monline">
+    <div class="calendar-layout"><section class="calendar-panel"><div class="monline">
       <button id="mprev" aria-label="Прошлый месяц">‹</button>
       <strong>${monthTitle(calMonth)}</strong>
       <button id="mnext" aria-label="Следующий месяц">›</button>
@@ -940,18 +943,18 @@ async function renderCal(): Promise<void> {
       <span><i class="ksw sun"></i>вс — relaxed</span>
       <span>★ — день закрыт</span>
     </div>
-    <h3>Неделя: ${esc(weekLabel)}</h3>
+    </section><section class="week-agenda"><p class="eyebrow">БЛИЖЕ К ЦЕЛИ</p><h3>${weekId === "prestart" ? "Подготовка к старту" : `Неделя ${esc(weekLabel.split(" ")[0])}`}</h3>
     ${list.map((d) => {
       const a = activityByDate.get(d.date);
       const doneDay = !!a && a.requiredTotal > 0 && a.done >= a.requiredTotal;
       const mark = doneDay ? "✓ " : "";
       const isToday = d.date === todayIso();
       return `<button class="listitem${isToday ? " today" : ""}" data-date="${d.date}">
-        <div class="d">${mark}${esc(d.title.replace(/^.*?·\s*/, ""))}${isToday ? " · сегодня" : ""}</div>
+        <div class="agenda-date">${esc(longDate(d.date))}${isToday ? " · сегодня" : ""}</div><div class="d">${mark}${esc(d.format ?? "Свободный день")}</div>
         <div class="s">${esc(d.format ?? "Свободный день")}${a && a.requiredMinutes ? ` · ~${a.requiredMinutes} мин` : ""}${a && a.requiredTotal > 0 ? ` · готово ${a.done} из ${a.requiredTotal}` : ""}</div>
       </button>`;
     }).join("")}
-    ${tabsHtml()}`;
+    </section></div>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   (document.getElementById("mprev") as HTMLButtonElement).onclick = () => {
@@ -1622,11 +1625,12 @@ async function renderProg(): Promise<void> {
     (document.getElementById("retry") as HTMLButtonElement).onclick = () => void renderProg();
     return;
   }
+  if (tab !== "prog") return;
   const days = activityCache!.days;
   const today = todayIso();
   const full = days.filter((d) => d.requiredTotal > 0 && d.done >= d.requiredTotal && d.date <= today).length;
   const req = days.filter((d) => d.requiredTotal > 0 && d.date <= today).length;
-  const mins = days.filter((d) => d.date <= today).reduce((s, d) => s + (d.done > 0 ? d.requiredMinutes : 0), 0);
+  const activeDays = days.filter((d) => d.date <= today && d.done > 0).length;
 
   // Серия: закрытые дни подряд; незакрытое сегодня серию не ломает.
   const reqPast = days
@@ -1689,14 +1693,16 @@ async function renderProg(): Promise<void> {
   }).join("");
 
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <h1>Прогресс</h1>${accountHtml()}
+    <p class="eyebrow">ТВОЙ ПУТЬ</p><h1>Регулярность меняет всё.</h1><p class="page-description">Каждый отмеченный шаг — часть твоего движения вперёд.</p>${accountHtml()}
     <div class="statcards">
-      <div class="statcard"><span class="sval">★ ${full}/${req}</span><span class="slab">дней закрыто</span></div>
-      <div class="statcard"><span class="sval">⏱ ~${mins}</span><span class="slab">минут всего</span></div>
-      <div class="statcard"><span class="sval">🔥 ${streak}</span><span class="slab">серия дней</span></div>
+      <div class="statcard"><span class="sval">${full}<small> / ${req}</small></span><span class="slab">дней закрыто</span></div>
+      <div class="statcard"><span class="sval">${activeDays}</span><span class="slab">дней с занятиями</span></div>
+      <div class="statcard"><span class="sval">${streak}</span><span class="slab">серия дней</span></div>
     </div>
-    <div class="heatwrap"><div class="heat">${heat}</div></div>
-    <div class="legend"><span>дырки — дни без отметок</span><span>★ — всё обязательное сделано</span></div>
+    <div class="section-heading"><h3>26 недель практики</h3><span>Сентябрь → март</span></div><div class="heatwrap"><div class="heat">${heat}</div></div>
+    <div class="legend"><span>Пунктир — день без отметок</span><span>★ — всё обязательное сделано</span></div>
+    <h3>Последние дни</h3>
+    ${days.filter((d) => d.date <= today).slice(-7).reverse().map((d) => `<button class="listitem progress-day" data-date="${d.date}"><span><span class="d">${esc(longDate(d.date))}</span><span class="s">${esc(d.format ?? "Свободный день")}</span></span><span class="progress-count">${d.done} / ${d.requiredTotal}${d.requiredTotal > 0 && d.done >= d.requiredTotal ? " ✓" : ""}</span></button>`).join("") || `<div class="empty-state"><h3>Твой путь скоро начнётся</h3><p>Здесь появятся отметки с первого дня плана.</p></div>`}
     ${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
@@ -1740,13 +1746,14 @@ async function renderLib(): Promise<void> {
     `<button class="subchip ${libSub === id ? "active" : ""}" data-libsub="${id}">${label}</button>`;
   let body = "";
   if (libSub === "ex") {
-    body = libItems.map((e) => {
+    body = `<input type="search" class="search" id="exercise-search" aria-label="Найти упражнение" placeholder="Найти по названию или коду, например тихие ноги…" value="${esc(exerciseFilter)}" />` + libItems.map((e) => {
       const open = openLib === e.id;
       const entry = libEntryCache.get(e.id);
-      return `<button class="listitem" data-lib="${e.id}">
-          <div class="d">${open ? "▾" : "▸"} ${esc(e.id)}</div><div class="s">${esc(e.title)}</div>
-        </button>${open && entry ? libEntryHtml(entry) : open ? `<p class="meta">Загрузка…</p>` : ""}`;
-    }).join("");
+      const visible = `${e.id} ${e.title}`.toLowerCase().includes(exerciseFilter.trim().toLowerCase());
+      return `<div data-exercise="${esc(`${e.id} ${e.title}`.toLowerCase())}" ${visible ? "" : "hidden"}><button class="listitem exercise-item" data-lib="${e.id}" aria-expanded="${open}">
+          <span class="exercise-code">${esc(e.id)}</span><span class="d">${esc(e.title)}</span><span>${open ? "−" : "+"}</span>
+        </button>${open && entry ? libEntryHtml(entry) : open ? `<p class="meta">Загрузка…</p>` : ""}</div>`;
+    }).join("") + `<p id="exercise-empty" class="empty-state" hidden>Ничего не найдено. Попробуй название техники или код упражнения.</p>`;
   } else if (libSub === "dict") {
     const q = dictFilter.trim().toLowerCase();
     const terms = glossaryCache.filter((g) =>
@@ -1771,7 +1778,8 @@ async function renderLib(): Promise<void> {
       body = `<p class="meta">Нет связи с API.</p>`;
     }
   }
-  app.innerHTML = `<header class="top">${topHtml()}</header><h1>Библиотека</h1>${accountHtml()}
+  if (tab !== "lib") return;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p class="eyebrow">УЧИСЬ В СВОЁМ ТЕМПЕ</p><h1>Меньше силы. Больше техники.</h1><p class="page-description">Упражнения, подсказки и материалы — под рукой, когда нужны.</p>${accountHtml()}
     <div class="subchips scrollx">${sub("ex", "Упражнения")}${sub("dict", "Словарь")}${sub("vids", "Видео")}${sub("shop", "Покупки")}</div>
     <div id="libbody">${body}</div>${tabsHtml()}`;
   wireTabs();
@@ -1790,6 +1798,20 @@ async function renderLib(): Promise<void> {
       void renderLib();
     };
   });
+  const exerciseSearch = document.getElementById("exercise-search") as HTMLInputElement | null;
+  const filterExercises = () => {
+    let count = 0;
+    app.querySelectorAll<HTMLElement>("[data-exercise]").forEach((item) => {
+      item.hidden = !item.dataset.exercise!.includes(exerciseFilter.trim().toLowerCase());
+      if (!item.hidden) count++;
+    });
+    const empty = document.getElementById("exercise-empty");
+    if (empty) empty.hidden = count > 0;
+  };
+  if (exerciseSearch) {
+    exerciseSearch.oninput = () => { exerciseFilter = exerciseSearch.value; filterExercises(); };
+    filterExercises();
+  }
   const dq = document.getElementById("dictq") as HTMLInputElement | null;
   if (dq) dq.oninput = (e) => {
     dictFilter = (e.target as HTMLInputElement).value;
@@ -1896,6 +1918,7 @@ async function renderSafe(): Promise<void> {
   wireDayNavLite();
   try {
     const doc = await api.doc("02_SAFETY_AND_AUTOREGULATION");
+    if (tab !== "safe") return;
     app.innerHTML = `<header class="top">${topHtml()}</header><h1>${esc(doc.title)}</h1>${accountHtml()}
       <div class="safety">Назначения физиотерапевта всегда важнее плана.</div>
       ${md(doc.body)}${tabsHtml()}`;
@@ -1961,7 +1984,6 @@ async function boot(): Promise<void> {
     libSub = "ex";
     openLib = lib.toUpperCase();
   }
-  calMonth = date.slice(0, 7);
   render();
 }
 
