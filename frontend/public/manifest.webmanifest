@@ -3,7 +3,7 @@
   "short_name": "Болдер",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1a1d21",
-  "theme_color": "#1a1d21",
+  "background_color": "#f5f5f0",
+  "theme_color": "#f5f5f0",
   "icons": []
 }

@@ -4,6 +4,7 @@ import {
   type DayMetrics, type Gym, type RouteWithPersonal, type RouteCard, type RouteAttempt, type QrResolveOut,
 } from "./api";
 import { md } from "./md";
+import { icon, longDate } from "./ui";
 
 const app = document.getElementById("app")!;
 
@@ -53,7 +54,7 @@ let scanTimer: number | undefined;
 let recoCache: { exerciseId: string; candidates: { route: RouteWithPersonal; score: number; reasons: string[]; alternatives: { route: RouteWithPersonal; reason: string }[] }[]; relaxations: string[] }[] | null = null;
 
 const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 function fmtLeft(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -334,21 +335,19 @@ function goCal(): void {
 }
 
 function brandHtml(): string {
-  return `<div class="brand"><span class="blogo" aria-hidden="true">🪨</span>
-    <span class="bname">Болдер-план</span>
-    <button id="datebtn" class="datechip" aria-label="Открыть календарь">${fmtDateRu(date)}</button></div>`;
+  return `<div class="brand"><span class="blogo">${icon("mountain")}</span>
+    <span class="bname">boulder<span class="brand-light"> / plan</span></span>
+    <span class="brand-caption">Маленькие шаги. Новые вершины.</span></div>`;
 }
 
-// Контекстная шапка: переключатель дней — только на экране дня,
-// на остальных вкладках — компактный бренд с прыжком в календарь.
 function topHtml(): string {
-  return tab === "today" ? navHtml() : brandHtml();
+  return `${brandHtml()}<button class="health-link" data-tab="safe" aria-label="Безопасность">${icon("safe")}<span>Здоровье</span></button>${tab === "today" ? navHtml() : `<button id="datebtn" class="datechip">${fmtDateRu(date)}</button>`}`;
 }
 
 function tabsHtml(): string {
-  const t = (id: Tab, label: string, icon: string, aria?: string) =>
-    `<button data-tab="${id}" class="${tab === id ? "active" : ""}" aria-label="${aria ?? label}"><span class="ti" aria-hidden="true">${icon}</span><span class="tl">${label}</span></button>`;
-  return `<nav class="tabs">${t("today", "Сегодня", "🏠")}${t("cal", "Календарь", "🗓️")}${t("routes", "Трассы", "🧗")}${t("prog", "Прогресс", "📊")}${t("lib", "Библиотека", "📚")}${t("safe", "Здоровье", "⛑️", "Безопасность")}</nav>`;
+  const t = (id: Tab, label: string) =>
+    `<button data-tab="${id}" class="${tab === id ? "active" : ""}" ${tab === id ? 'aria-current="page"' : ''}><span class="ti">${icon(id)}</span><span class="tl">${label}</span></button>`;
+  return `<nav class="tabs" aria-label="Основная навигация"><div class="nav-brand">${icon("mountain")}<span>boulder / plan</span></div>${t("today", "Мой день")}${t("cal", "План")}${t("routes", "Трассы")}${t("prog", "Прогресс")}${t("lib", "Библиотека")}<div class="nav-footer">26 недель<br><span>Сентябрь 2026 — март 2027</span></div></nav>`;
 }
 
 function renderLogin(error = ""): void {
@@ -381,10 +380,13 @@ function needLogin(e: unknown): boolean {
 
 function wireTabs(): void {
   wireAccount();
+  app.dataset.screen = tab;
   app.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => {
     b.onclick = () => {
       flushSave();
+      if (tab === "routes") stopScanner();
       tab = b.dataset.tab as Tab;
+      window.scrollTo(0, 0);
       render();
     };
   });
