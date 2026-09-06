@@ -47,6 +47,8 @@ let routesList: RouteWithPersonal[] = [];
 let catalogWarn: string | null = null;
 let openRouteId: string | null = null;
 const cardCache = new Map<string, RouteCard>();
+let routeQuery = "";
+let routeFilter = "all";
 let qrText = "";
 let qrMsg = "";
 let failReason = "FOOT_SLIP";
@@ -1120,45 +1122,42 @@ async function renderRoutes(): Promise<void> {
 }
 
 function renderRoutesView(): void {
+  if (tab !== "routes") return;
   const gym = gymsCache.find((g) => g.id === selGym);
   const canScan = typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector !== "undefined";
   const card = openRouteId ? cardCache.get(openRouteId) : undefined;
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <h1>Трассы</h1>${accountHtml()}
+    <p class="eyebrow">В ЗАЛЕ</p><h1>Каждая попытка считается.</h1><p class="page-description">Найди свою трассу. Попробуй. Запомни, что сработало.</p>${accountHtml()}
+    ${card ? `<button id="route-back" class="text-button">← К коллекции трасс</button>${routeCardHtml(card)}` : ""}
+    <div ${card ? "hidden" : ""}>
     <div class="subchips scrollx">${gymsCache.map((g) =>
       `<button class="subchip ${g.id === selGym ? "active" : ""}" data-gym="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>
     ${catalogWarn ? `<div class="cue">${esc(catalogWarn)}</div>` : ""}
     ${gym?.provider === "beta7" ? `<details class="section slim"><summary>Как это работает</summary><p class="hint">QR у стартового зацепа → карточка трассы. Каталог пополняется после разрешения BETA7.</p></details>` : ""}
-    <h3>QR-код трассы</h3>
+    <section class="route-entry"><h3>Добавь трассу у стены</h3><p class="hint">Сканируй QR-код или вставь ссылку с него.</p>
     <div class="qrrow">
-      <input class="search" id="qrtext" placeholder="Вставь ссылку с QR (https://beta7.app/route/…)" value="${esc(qrText)}" inputmode="url" aria-label="Ссылка с QR-кода трассы" />
+      <input class="search" id="qrtext" placeholder="https://beta7.app/route/…" value="${esc(qrText)}" inputmode="url" aria-label="Ссылка с QR-кода трассы" />
       ${canScan ? `<button class="iconbtn${scanning ? " active" : ""}" id="qrscan" aria-label="${scanning ? "Остановить камеру" : "Сканировать камерой"}">📷</button>` : ""}
     </div>
-    <button class="primary blockbtn" id="qrgo">Распознать трассу</button>
+    <button class="primary blockbtn" id="qrgo">Открыть трассу ${icon("arrow")}</button>
     ${scanning ? `<video id="scanvid" playsinline muted style="width:100%;border-radius:12px;background:#000"></video>` : ""}
-    ${qrMsg ? `<div class="cue">${esc(qrMsg)}</div>` : ""}
-    ${card ? routeCardHtml(card) : ""}
+    ${qrMsg ? `<div class="cue" role="status">${esc(qrMsg)}</div>` : ""}</section>
     <h3>Подобрать под тренировку</h3>
     <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button>
     <button class="subchip" id="sync">Обновить каталог</button></div>
     <div id="recoout">${recoCache ? recoHtml(recoCache) : ""}</div>
-    <h3>Трассы зала (${routesList.length})</h3>
-    ${routesList.map((it) => {
-      const r = it.route;
-      const st = it.personalState;
-      return `<button class="listitem" data-route="${esc(r.id)}">
-        <div class="d">${esc(routeTitle(r))}${st?.sent ? " ✓" : ""}</div>
-        <div class="s">${esc([r.sector, r.grade.raw || "без грейда", r.styles.slice(0, 3).join(" · ")].filter(Boolean).join(" · "))}${st ? ` · ${esc(statusRu(st.status))} · попыток ${st.totalAttempts}` : ""}</div>
-      </button>`;
-    }).join("") || `<p class="meta">Пока пусто — отсканируй QR или добавь вручную ниже.</p>`}
+    <div class="section-heading"><h3>Твоя коллекция</h3><span>${routesList.length} трасс</span></div>
+    <input class="search" type="search" id="route-search" placeholder="Название, сектор или грейд…" aria-label="Найти трассу" value="${esc(routeQuery)}" />
+    <div class="subchips scrollx">${[["all", "Все"], ["project", "В работе"], ["want", "Хочу попробовать"], ["sent", "Пройдены"]].map(([id, label]) => `<button class="subchip ${routeFilter === id ? "active" : ""}" data-routefilter="${id}" aria-pressed="${routeFilter === id}">${label}</button>`).join("")}</div>
+    <div id="route-results" class="route-grid"></div>
     <details class="section"><summary>Добавить вручную</summary>
-      <input class="search" id="m-sector" placeholder="Сектор" />
-      <input class="search" id="m-name" placeholder="Название / зацепы" />
-      <input class="search" id="m-grade" placeholder="Грейд, напр. 6C/LILA" />
-      <input class="search" id="m-styles" placeholder="Стили через запятую: footwork, balance" />
+      <input class="search" id="m-sector" aria-label="Сектор" placeholder="Сектор" />
+      <input class="search" id="m-name" aria-label="Название или зацепы" placeholder="Название / зацепы" />
+      <input class="search" id="m-grade" aria-label="Грейд" placeholder="Грейд, напр. 6C/LILA" />
+      <input class="search" id="m-styles" aria-label="Стили" placeholder="Стили через запятую: footwork, balance" />
       <button class="subchip active" id="m-add">Добавить в ${esc(gym?.name ?? "")}</button>
     </details>
-    ${tabsHtml()}`;
+    </div>${card && qrMsg ? `<div class="cue" role="status">${esc(qrMsg)}</div>` : ""}${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   app.querySelectorAll<HTMLButtonElement>("[data-gym]").forEach((b) => {
@@ -1168,6 +1167,21 @@ function renderRoutesView(): void {
       openRouteId = null;
       recoCache = null;
       void renderRoutes();
+    };
+  });
+  const back = document.getElementById("route-back");
+  if (back) back.onclick = () => { openRouteId = null; qrMsg = ""; renderRoutesView(); };
+  paintRouteResults();
+  const search = document.getElementById("route-search") as HTMLInputElement;
+  search.oninput = () => { routeQuery = search.value; paintRouteResults(); };
+  app.querySelectorAll<HTMLButtonElement>("[data-routefilter]").forEach((b) => {
+    b.onclick = () => {
+      routeFilter = b.dataset.routefilter!;
+      app.querySelectorAll<HTMLButtonElement>("[data-routefilter]").forEach((item) => {
+        item.classList.toggle("active", item.dataset.routefilter === routeFilter);
+        item.setAttribute("aria-pressed", String(item.dataset.routefilter === routeFilter));
+      });
+      paintRouteResults();
     };
   });
   const qi = document.getElementById("qrtext") as HTMLInputElement;
@@ -1190,6 +1204,17 @@ function renderRoutesView(): void {
   (document.getElementById("m-add") as HTMLButtonElement).onclick = () => void doManualAdd();
 }
 
+function paintRouteResults(): void {
+  const box = document.getElementById("route-results");
+  if (!box) return;
+  const items = routesList.filter(({ route: r, personalState: st }) => {
+    const matches = [routeTitle(r), r.sector, r.grade.raw, ...r.styles].join(" ").toLowerCase().includes(routeQuery.trim().toLowerCase());
+    return matches && (routeFilter === "all" || (routeFilter === "project" && st?.status === "PROJECTING") || (routeFilter === "want" && st?.status === "WANT_TO_TRY") || (routeFilter === "sent" && st?.sent));
+  });
+  box.innerHTML = items.map(({ route: r, personalState: st }) => `<button class="route-tile" data-route="${esc(r.id)}"><span class="route-grade">${esc(r.grade.raw || "?")}</span><span class="route-info"><strong>${esc(routeTitle(r))}</strong><small>${esc(r.sector || "Сектор не указан")}${st ? ` · ${esc(statusRu(st.status))}` : ""}</small><small>${st?.totalAttempts ?? 0} попыток${r.styles.length ? ` · ${esc(r.styles.slice(0, 2).join(" · "))}` : ""}</small></span>${icon("arrow")}</button>`).join("") || `<div class="empty-state">${icon("routes")}<h3>${routesList.length ? "Таких трасс пока нет" : "Твоя первая трасса ждёт"}</h3><p>${routesList.length ? "Попробуй другой запрос или фильтр." : "Открой QR-код у стартового зацепа или добавь трассу вручную."}</p></div>`;
+  box.querySelectorAll<HTMLButtonElement>("[data-route]").forEach((b) => { b.onclick = () => void openCard(b.dataset.route!); });
+}
+
 function routeCardHtml(c: RouteCard): string {
   const r = c.route;
   const st = c.personalState;
@@ -1197,40 +1222,37 @@ function routeCardHtml(c: RouteCard): string {
   const stats: [string, string][] = [
     ["WANT_TO_TRY", "Хочу"], ["PROJECTING", "Проект"], ["SENT", "Сделал"], ["FLASHED", "Флеш"], ["SKIPPED", "Пропуск"],
   ];
-  return `<div class="acc">
-    <div class="d" style="font-weight:700">${esc(routeTitle(r))}</div>
+  return `<div class="acc route-card">
+    <p class="eyebrow">${esc(r.grade.raw || "БЕЗ ГРЕЙДА")}</p><h2>${esc(routeTitle(r))}</h2>
+    <div class="attempt-entry"><span class="eyebrow">ЗАПИСАТЬ ПОПЫТКУ · ${esc(fmtDateRu(date))}</span>
+    <div class="attempt-actions"><button data-att="FAILED">Не получилось</button><button class="primary" data-att="SENT">Сделал ✓</button><button data-att="FLASHED">Флеш</button></div></div>
     <div class="s meta">${esc([r.gymName, r.sector, r.grade.raw || "грейд не указан"].filter(Boolean).join(" · "))}</div>
     ${r.photoUrl ? `<img class="routephoto" src="${esc(r.photoUrl)}" alt="Фото трассы" loading="lazy" />
     ${r.photoSource === "beta7" ? `<div class="s meta">Фото сектора с сайта — не конкретной трассы</div>` : ""}` : ""}
-    <div class="cue">Фото:
-      <input class="search" id="ph-url" placeholder="Вставь ссылку на фото…" value="" inputmode="url" />
+    <details class="section slim"><summary>${r.photoUrl ? "Изменить фото" : "Добавить фото трассы"}</summary>
+      <input class="search" id="ph-url" aria-label="Ссылка на фото" placeholder="Вставь ссылку на фото…" value="" inputmode="url" />
       <div class="subchips">
         <button class="subchip" id="ph-save">Прикрепить ссылку</button>
         <button class="subchip" id="ph-pick">📷 Снять / выбрать…</button>
         ${r.photoUrl ? `<button class="subchip" id="ph-del">Убрать фото</button>` : ""}
       </div>
       <input type="file" id="ph-file" accept="image/*" style="display:none" />
-    </div>
+    </details>
     ${r.styles.length ? `<div class="terms">${r.styles.map((s) => `<span class="term">${esc(s)}</span>`).join("")}</div>` : ""}
     ${r.setter ? `<div class="s meta">Постановщик: ${esc(r.setter)}</div>` : ""}
     ${!r.sector || !r.grade.raw ? `<div class="cue">Деталей мало — дополни:
-      <input class="search" id="e-sector" placeholder="Сектор" value="${esc(r.sector ?? "")}" />
-      <input class="search" id="e-grade" placeholder="Грейд" value="${esc(r.grade.raw ?? "")}" />
+      <input class="search" id="e-sector" aria-label="Сектор" placeholder="Сектор" value="${esc(r.sector ?? "")}" />
+      <input class="search" id="e-grade" aria-label="Грейд" placeholder="Грейд" value="${esc(r.grade.raw ?? "")}" />
       <button class="subchip active" id="e-save">Сохранить</button></div>` : ""}
     <div class="meta"><span>Попыток: всего ${st?.totalAttempts ?? c.attempts.length}</span><span>· ~${secs} мин</span></div>
-    <div class="subchips">${stats.map(([v, l]) =>
+    <p class="eyebrow">В КОЛЛЕКЦИИ</p><div class="subchips">${stats.map(([v, l]) =>
       `<button class="subchip ${st?.status === v ? "active" : ""}" data-st="${v}">${l}</button>`).join("")}</div>
-    <div class="subchips">
-      <button class="subchip active" data-att="FAILED">Не получилось</button>
-      <button class="subchip" data-att="SENT">Сделал</button>
-      <button class="subchip" data-att="FLASHED">Флеш</button>
-    </div>
     <div class="meta"><span>Почему не получилось:</span>
-      <select id="failreason" class="subchip">
+      <select aria-label="Почему не получилось" id="failreason" class="subchip">
         ${FAIL_REASONS_RU.map(([v, l]) =>
           `<option value="${v}" ${failReason === v ? "selected" : ""}>${l}</option>`).join("")}
       </select>
-      <button class="subchip" id="tm-toggle">⏱ Старт/стоп</button>
+      <button class="subchip" id="tm-toggle">${c.timers.some((t) => t.status === "RUNNING") ? "Пауза таймера" : "Начать таймер"}</button>
     </div>
     <h3>Попытки</h3>
     ${attemptsHtml(c.attempts)}
@@ -1348,7 +1370,9 @@ async function openCard(id: string): Promise<void> {
   } catch (e) {
     qrMsg = e instanceof Error ? e.message : "Карточка не открылась";
   }
+  stopScanner();
   renderRoutesView();
+  window.scrollTo(0, 0);
 }
 
 async function refreshCard(): Promise<void> {
