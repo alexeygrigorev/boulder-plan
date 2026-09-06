@@ -262,21 +262,27 @@ async function loadDay(): Promise<void> {
   const requestedDate = date;
   expandedBlock = null;
   sessionMode = false;
-  app.innerHTML = `<header class="top">${topHtml()}</header><p>Загрузка…</p>`;
+  app.innerHTML = `<header class="top">${topHtml()}</header><p class="loading" role="status">Готовим твой день…</p>${tabsHtml()}`;
+  wireTabs();
+  wireDayNavLite();
   try {
     const loaded = await api.plan(requestedDate);
     if (requestedDate !== date || tab !== "today") return;
     day = loaded;
   } catch (e) {
+    if (requestedDate !== date || tab !== "today") return;
     if (needLogin(e)) {
       renderLogin();
       return;
     }
     day = null;
-    app.innerHTML = `<header class="top">${topHtml()}</header>
-      <h1>Нет плана на ${esc(date)}</h1>
-      <p class="meta">План покрывает 2026-09-03 → 07.03.2027. Открой «Календарь», чтобы выбрать день.</p>
-      ${tabsHtml()}`;
+    const missing = e instanceof Error && /404$/.test(e.message);
+    app.innerHTML = `<header class="top">${topHtml()}</header><div class="empty-state">
+      <h1>${missing ? `Нет плана на ${esc(fmtDateRu(date))}` : "Не удалось загрузить день"}</h1>
+      <p>${missing ? "План: 3 сентября 2026 — 7 марта 2027. Выбери день в календаре." : "Проверь соединение и попробуй ещё раз. Твои сохранённые отметки остаются на устройстве."}</p>
+      <button class="primary" data-tab="cal">Открыть план</button>${missing ? "" : `<button id="retry-day">Повторить</button>`}</div>${tabsHtml()}`;
+    const retry = document.getElementById("retry-day");
+    if (retry) retry.onclick = () => void loadDay();
     wireTabs();
     wireDayNavLite();
     return;
@@ -306,6 +312,7 @@ async function loadDay(): Promise<void> {
       }
     }
   } catch {
+    if (requestedDate !== date || tab !== "today") return;
     const local = readLocal(date);
     if (local) {
       checks = local.checks;
@@ -363,11 +370,11 @@ function tabsHtml(): string {
 }
 
 function renderLogin(error = ""): void {
-  app.innerHTML = `<h1>Болдер-план</h1>
-    <p class="meta">Тренировки 03.09.2026 → 07.03.2027</p>
-    ${error ? `<div class="safety">${esc(error)}</div>` : ""}
-    <button class="listitem" id="login"><div class="d">Войти через Google</div>
-    <div class="s">доступ только для datatalks.club</div></button>`;
+  app.innerHTML = `<div class="login-page">${brandHtml()}<p class="eyebrow">ТВОИ СЛЕДУЮЩИЕ 26 НЕДЕЛЬ</p><h1>Выше.<br>Шаг за шагом.</h1>
+    <p class="page-description">Личный план тренировок, любимые трассы и маленькие победы — в одном месте.</p>
+    ${error ? `<div class="safety" role="alert">${esc(error)}</div>` : ""}
+    <button class="primary blockbtn" id="login">Войти через Google ${icon("arrow")}</button>
+    <p class="hint">Для аккаунта datatalks.club</p></div>`;
   (document.getElementById("login") as HTMLButtonElement).onclick = () => {
     auth.beginLogin(window.location.pathname + window.location.search).catch((e) => {
       renderLogin(e instanceof Error ? e.message : "Вход не удался");
@@ -393,6 +400,12 @@ function needLogin(e: unknown): boolean {
 function wireTabs(): void {
   wireAccount();
   app.dataset.screen = tab;
+  if (tab !== "doc") {
+    const params = new URLSearchParams({ date, tab });
+    if (tab === "cal") params.set("month", calMonth);
+    if (tab === "lib" && openLib) params.set("lib", openLib);
+    history.replaceState(null, "", `?${params}`);
+  }
   app.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => {
     b.onclick = () => {
       flushSave();
@@ -464,7 +477,7 @@ function doneCriteriaHtml(s: { heading: string; body: string }): string {
       const key = `sec:done:${i}`;
       const on = !!checks[key];
       return `<div class="seccheck${on ? " on" : ""}">
-        <button class="check" data-seccheck="${key}" aria-label="Отметить пункт">${on ? "✓" : "○"}</button>
+        <button class="check" data-seccheck="${key}" aria-pressed="${on}" aria-label="Отметить пункт">${on ? "✓" : "○"}</button>
         <div class="stext">${md(t)}</div>
       </div>`;
     }).join("")}
@@ -551,7 +564,7 @@ async function paintDayRoutes(daySnapshot: string): Promise<void> {
 }
 
 function renderDay(): void {
-  if (!day) {
+  if (!day || day.date !== date) {
     void loadDay();
     return;
   }
@@ -702,6 +715,7 @@ function wireBlocks(): void {
       scheduleSave();
       const on = !!checks[id];
       b.textContent = on ? "✓" : "○";
+      b.setAttribute("aria-pressed", String(on));
       b.closest(".seccheck")?.classList.toggle("on", on);
     };
   });
@@ -712,6 +726,7 @@ function wireBlocks(): void {
     btn.onclick = () => {
       const id = btn.dataset.notetoggle!;
       openNote = openNote === id ? null : id;
+      expandedBlock = id;
       renderDay();
       const ta = document.querySelector<HTMLTextAreaElement>(`[data-blocknote="${id}"]`);
       if (ta) {
@@ -738,13 +753,8 @@ const METER_DEFS: { key: keyof DayMetrics; label: string; min: number; max: numb
 ];
 
 function meterHtml(key: keyof DayMetrics, label: string, min: number, max: number): string {
-  const v = metrics[key];
-  const val = v === undefined ? `<strong class="emptyval">${min}–${max}</strong>` : `<strong id="mv-${key}">${v}</strong>`;
-  return `<div class="meter"><span>${label}</span>
-    <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="-1" aria-label="${label} меньше">−</button>
-    ${val}
-    <button data-meter="${key}" data-min="${min}" data-max="${max}" data-d="1" aria-label="${label} больше">+</button>
-  </div>`;
+  const value = metrics[key];
+  return `<label class="meter"><span>${label}</span><select data-meter-select="${key}" aria-label="${label}"><option value="" ${value === undefined ? "selected" : ""}>Не отмечено</option>${Array.from({ length: max - min + 1 }, (_, i) => i + min).map((n) => `<option value="${n}" ${value === n ? "selected" : ""}>${n}${n === min ? key === "energy" ? " · мало сил" : " · не болит" : n === max ? key === "energy" ? " · много сил" : " · сильная боль" : ""}</option>`).join("")}</select></label>`;
 }
 
 // Фиксированный порядок шкал: пересортировка при каждом тапе дезориентирует
@@ -753,26 +763,13 @@ function metersHtml(): string {
   return METER_DEFS.map((m) => meterHtml(m.key, m.label, m.min, m.max)).join("");
 }
 
-function paintMeters(): void {
-  const box = document.getElementById("meters");
-  if (!box) return;
-  box.innerHTML = metersHtml();
-  wireMeters();
-}
-
 function wireMeters(): void {
-  app.querySelectorAll<HTMLButtonElement>("[data-meter]").forEach((b) => {
-    b.onclick = () => {
-      const key = b.dataset.meter as keyof DayMetrics;
-      const min = Number(b.dataset.min);
-      const max = Number(b.dataset.max);
-      const d = Number(b.dataset.d);
-      const cur = metrics[key];
-      const next = cur === undefined ? (d > 0 ? min : max) : Math.min(max, Math.max(min, cur + d));
-      if (next === cur) return;
-      metrics[key] = next;
+  app.querySelectorAll<HTMLSelectElement>("[data-meter-select]").forEach((select) => {
+    select.onchange = () => {
+      const key = select.dataset.meterSelect as keyof DayMetrics;
+      if (select.value === "") delete metrics[key];
+      else metrics[key] = Number(select.value);
       scheduleSave();
-      paintMeters(); // порядок фиксированный — ничего не прыгает
     };
   });
 }
@@ -951,7 +948,7 @@ async function renderCal(): Promise<void> {
       const isToday = d.date === todayIso();
       return `<button class="listitem${isToday ? " today" : ""}" data-date="${d.date}">
         <div class="agenda-date">${esc(longDate(d.date))}${isToday ? " · сегодня" : ""}</div><div class="d">${mark}${esc(d.format ?? "Свободный день")}</div>
-        <div class="s">${esc(d.format ?? "Свободный день")}${a && a.requiredMinutes ? ` · ~${a.requiredMinutes} мин` : ""}${a && a.requiredTotal > 0 ? ` · готово ${a.done} из ${a.requiredTotal}` : ""}</div>
+        <div class="s">${a && a.requiredMinutes ? `~${a.requiredMinutes} мин` : "В своём темпе"}${a && a.requiredTotal > 0 ? ` · готово ${a.done} из ${a.requiredTotal}` : ""}</div>
       </button>`;
     }).join("")}
     </section></div>${tabsHtml()}`;
@@ -1130,13 +1127,11 @@ function renderRoutesView(): void {
   const canScan = typeof (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector !== "undefined";
   const card = openRouteId ? cardCache.get(openRouteId) : undefined;
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <p class="eyebrow">В ЗАЛЕ</p><h1>Каждая попытка считается.</h1><p class="page-description">Найди свою трассу. Попробуй. Запомни, что сработало.</p>${accountHtml()}
+    <p class="eyebrow">В ЗАЛЕ</p><h1>Твои трассы</h1><p class="page-description">Найди свою трассу. Попробуй. Запомни, что сработало.</p>${accountHtml()}
     ${card ? `<button id="route-back" class="text-button">← К коллекции трасс</button>${routeCardHtml(card)}` : ""}
     <div ${card ? "hidden" : ""}>
     <div class="subchips scrollx">${gymsCache.map((g) =>
       `<button class="subchip ${g.id === selGym ? "active" : ""}" data-gym="${esc(g.id)}">${esc(g.name)}</button>`).join("")}</div>
-    ${catalogWarn ? `<div class="cue">${esc(catalogWarn)}</div>` : ""}
-    ${gym?.provider === "beta7" ? `<details class="section slim"><summary>Как это работает</summary><p class="hint">QR у стартового зацепа → карточка трассы. Каталог пополняется после разрешения BETA7.</p></details>` : ""}
     <section class="route-entry"><h3>Добавь трассу у стены</h3><p class="hint">Сканируй QR-код или вставь ссылку с него.</p>
     <div class="qrrow">
       <input class="search" id="qrtext" placeholder="https://beta7.app/route/…" value="${esc(qrText)}" inputmode="url" aria-label="Ссылка с QR-кода трассы" />
@@ -1145,14 +1140,15 @@ function renderRoutesView(): void {
     <button class="primary blockbtn" id="qrgo">Открыть трассу ${icon("arrow")}</button>
     ${scanning ? `<video id="scanvid" playsinline muted style="width:100%;border-radius:12px;background:#000"></video>` : ""}
     ${qrMsg ? `<div class="cue" role="status">${esc(qrMsg)}</div>` : ""}</section>
-    <h3>Подобрать под тренировку</h3>
-    <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button>
-    <button class="subchip" id="sync">Обновить каталог</button></div>
-    <div id="recoout">${recoCache ? recoHtml(recoCache) : ""}</div>
     <div class="section-heading"><h3>Твоя коллекция</h3><span>${routesList.length} трасс</span></div>
     <input class="search" type="search" id="route-search" placeholder="Название, сектор или грейд…" aria-label="Найти трассу" value="${esc(routeQuery)}" />
     <div class="subchips scrollx">${[["all", "Все"], ["project", "В работе"], ["want", "Хочу попробовать"], ["sent", "Пройдены"]].map(([id, label]) => `<button class="subchip ${routeFilter === id ? "active" : ""}" data-routefilter="${id}" aria-pressed="${routeFilter === id}">${label}</button>`).join("")}</div>
     <div id="route-results" class="route-grid"></div>
+    <details class="section"><summary>Подобрать под тренировку</summary>
+    <div class="subchips"><button class="subchip" id="reco">Разминка · техника · проект</button>
+    </div>
+    <div id="recoout">${recoCache ? recoHtml(recoCache) : ""}</div>
+</details><details class="section slim"><summary>Обновление коллекции</summary><p class="hint">Здесь сохранённые трассы, а не полный список зала. Добавляй новые по QR-коду у стены.</p><button class="subchip" id="sync">Обновить каталог</button>${catalogWarn ? `<p class="hint">${esc(catalogWarn)}</p>` : ""}</details>
     <details class="section"><summary>Добавить вручную</summary>
       <input class="search" id="m-sector" aria-label="Сектор" placeholder="Сектор" />
       <input class="search" id="m-name" aria-label="Название или зацепы" placeholder="Название / зацепы" />
@@ -1160,7 +1156,7 @@ function renderRoutesView(): void {
       <input class="search" id="m-styles" aria-label="Стили" placeholder="Стили через запятую: footwork, balance" />
       <button class="subchip active" id="m-add">Добавить в ${esc(gym?.name ?? "")}</button>
     </details>
-    </div>${card && qrMsg ? `<div class="cue" role="status">${esc(qrMsg)}</div>` : ""}${tabsHtml()}`;
+    </div>${tabsHtml()}`;
   wireTabs();
   wireDayNavLite();
   app.querySelectorAll<HTMLButtonElement>("[data-gym]").forEach((b) => {
@@ -1227,7 +1223,13 @@ function routeCardHtml(c: RouteCard): string {
   ];
   return `<div class="acc route-card">
     <p class="eyebrow">${esc(r.grade.raw || "БЕЗ ГРЕЙДА")}</p><h2>${esc(routeTitle(r))}</h2>
-    <div class="attempt-entry"><span class="eyebrow">ЗАПИСАТЬ ПОПЫТКУ · ${esc(fmtDateRu(date))}</span>
+    ${qrMsg ? `<div class="cue" role="status">${esc(qrMsg)}</div>` : ""}<div class="attempt-entry"><span class="eyebrow">ЗАПИСАТЬ ПОПЫТКУ · ${esc(fmtDateRu(date))}</span>
+    <div class="meta"><span>Почему не получилось:</span>
+      <select aria-label="Почему не получилось" id="failreason" class="subchip">
+        ${FAIL_REASONS_RU.map(([v, l]) =>
+          `<option value="${v}" ${failReason === v ? "selected" : ""}>${l}</option>`).join("")}
+      </select>
+</div>
     <div class="attempt-actions"><button data-att="FAILED">Не получилось</button><button class="primary" data-att="SENT">Сделал ✓</button><button data-att="FLASHED">Флеш</button></div></div>
     <div class="s meta">${esc([r.gymName, r.sector, r.grade.raw || "грейд не указан"].filter(Boolean).join(" · "))}</div>
     ${r.photoUrl ? `<img class="routephoto" src="${esc(r.photoUrl)}" alt="Фото трассы" loading="lazy" />
@@ -1250,12 +1252,7 @@ function routeCardHtml(c: RouteCard): string {
     <div class="meta"><span>Попыток: всего ${st?.totalAttempts ?? c.attempts.length}</span><span>· ~${secs} мин</span></div>
     <p class="eyebrow">В КОЛЛЕКЦИИ</p><div class="subchips">${stats.map(([v, l]) =>
       `<button class="subchip ${st?.status === v ? "active" : ""}" data-st="${v}">${l}</button>`).join("")}</div>
-    <div class="meta"><span>Почему не получилось:</span>
-      <select aria-label="Почему не получилось" id="failreason" class="subchip">
-        ${FAIL_REASONS_RU.map(([v, l]) =>
-          `<option value="${v}" ${failReason === v ? "selected" : ""}>${l}</option>`).join("")}
-      </select>
-      <button class="subchip" id="tm-toggle">${c.timers.some((t) => t.status === "RUNNING") ? "Пауза таймера" : "Начать таймер"}</button>
+    <div class="meta">      <button class="subchip" id="tm-toggle">${c.timers.some((t) => t.status === "RUNNING") ? "Пауза таймера" : "Начать таймер"}</button>
     </div>
     <h3>Попытки</h3>
     ${attemptsHtml(c.attempts)}
@@ -1450,6 +1447,7 @@ async function attachScanner(): Promise<void> {
   if (!BD || !video) return;
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    if (!scanning || tab !== "routes" || !video.isConnected) { stopScanner(); return; }
     video.srcObject = scanStream;
     await video.play();
     const det = new BD();
@@ -1656,7 +1654,7 @@ async function renderProg(): Promise<void> {
   while (cur <= end) {
     const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
     col.push(iso);
-    if (cur.getDay() === 1 || iso === "2026-09-03") {
+    if (iso >= "2026-09-03" && (cur.getDay() === 1 || iso === "2026-09-03")) {
       const m = `${MONTHS[cur.getMonth()].slice(0, 3)}`;
       if (m !== lastMonth) {
         labels.push({ col: cols.length, text: iso === "2026-09-03" ? "сен" : m });
@@ -1693,7 +1691,7 @@ async function renderProg(): Promise<void> {
   }).join("");
 
   app.innerHTML = `<header class="top">${topHtml()}</header>
-    <p class="eyebrow">ТВОЙ ПУТЬ</p><h1>Регулярность меняет всё.</h1><p class="page-description">Каждый отмеченный шаг — часть твоего движения вперёд.</p>${accountHtml()}
+    <p class="eyebrow">ТВОЙ ПУТЬ</p><h1>Твой прогресс</h1><p class="page-description">Каждый отмеченный шаг — часть твоего движения вперёд.</p>${accountHtml()}
     <div class="statcards">
       <div class="statcard"><span class="sval">${full}<small> / ${req}</small></span><span class="slab">дней закрыто</span></div>
       <div class="statcard"><span class="sval">${activeDays}</span><span class="slab">дней с занятиями</span></div>
@@ -1746,7 +1744,7 @@ async function renderLib(): Promise<void> {
     `<button class="subchip ${libSub === id ? "active" : ""}" data-libsub="${id}">${label}</button>`;
   let body = "";
   if (libSub === "ex") {
-    body = `<input type="search" class="search" id="exercise-search" aria-label="Найти упражнение" placeholder="Найти по названию или коду, например тихие ноги…" value="${esc(exerciseFilter)}" />` + libItems.map((e) => {
+    body = `<input type="search" class="search" id="exercise-search" aria-label="Найти упражнение" placeholder="Название или код упражнения…" value="${esc(exerciseFilter)}" />` + libItems.map((e) => {
       const open = openLib === e.id;
       const entry = libEntryCache.get(e.id);
       const visible = `${e.id} ${e.title}`.toLowerCase().includes(exerciseFilter.trim().toLowerCase());
@@ -1779,7 +1777,7 @@ async function renderLib(): Promise<void> {
     }
   }
   if (tab !== "lib") return;
-  app.innerHTML = `<header class="top">${topHtml()}</header><p class="eyebrow">УЧИСЬ В СВОЁМ ТЕМПЕ</p><h1>Меньше силы. Больше техники.</h1><p class="page-description">Упражнения, подсказки и материалы — под рукой, когда нужны.</p>${accountHtml()}
+  app.innerHTML = `<header class="top">${topHtml()}</header><p class="eyebrow">УЧИСЬ В СВОЁМ ТЕМПЕ</p><h1>Техника под рукой</h1><p class="page-description">Упражнения, подсказки и материалы — под рукой, когда нужны.</p>${accountHtml()}
     <div class="subchips scrollx">${sub("ex", "Упражнения")}${sub("dict", "Словарь")}${sub("vids", "Видео")}${sub("shop", "Покупки")}</div>
     <div id="libbody">${body}</div>${tabsHtml()}`;
   wireTabs();
